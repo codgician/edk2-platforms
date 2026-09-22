@@ -436,6 +436,7 @@
 # Platform specific defaults
   # Set SMBIOS product name
   gArmTokenSpaceGuid.PcdSystemProductName|L"Radxa Orion O6N"
+  gRadxaTokenSpaceGuid.PcdBoardId|2
 
   # RTC (taken from Phecda PcdI2c3BusFreq)
   gHym8563RealTimeClockLibTokenSpaceGuid.PcdI2cBusFrequency|100000

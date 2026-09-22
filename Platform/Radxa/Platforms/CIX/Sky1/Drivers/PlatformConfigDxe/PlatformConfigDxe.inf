@@ -75,6 +75,7 @@
 
 [FixedPcd]
   gCixPlatformTokenSpaceGuid.PcdEcAcpiI2cEn
+  gRadxaTokenSpaceGuid.PcdBoardId
   gRadxaTokenSpaceGuid.PcdUFSPowerMode
   // Sync with Platform/CIX/Sky1/Drivers/SetupManagerDxe/SetupManagerDxe.inf
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString

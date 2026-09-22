@@ -17,12 +17,14 @@ form formid = COMPLIANCE_CONFIG_FORM_ID,
     flags  = INTERACTIVE | RESET_REQUIRED,
   endcheckbox;
 
+grayoutif FixedPcdGet8 (PcdBoardId) != 1;
   checkbox varid = DtAcpiPref.Pref,
     prompt = STRING_TOKEN(STR_COMPLIANCE_ACPI),
     help   = STRING_TOKEN(STR_COMPLIANCE_ACPI_HELP),
     flags  = CHECKBOX_DEFAULT | RESET_REQUIRED,
     default = TRUE,
   endcheckbox;
+endif;
 
 suppressif ideqval DtAcpiPref.Pref == DT_ACPI_SELECT_DT;
   checkbox varid = ConsolePref.Console,
