@@ -10,6 +10,7 @@
 
 #include <DtPlatformDxe.h>
 #include <Uefi/UefiMultiPhase.h>
+#include <PlatformInfoTypes.h>
 #include "PlatformConfigHii.h"
 #include "../../Include/RadxaSetupVar.h"
 

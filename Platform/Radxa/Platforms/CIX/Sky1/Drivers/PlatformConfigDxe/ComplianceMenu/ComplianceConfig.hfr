@@ -17,7 +17,7 @@ form formid = COMPLIANCE_CONFIG_FORM_ID,
     flags  = INTERACTIVE | RESET_REQUIRED,
   endcheckbox;
 
-grayoutif FixedPcdGet8 (PcdBoardId) != 1;
+grayoutif FixedPcdGet8 (PcdBoardId) != TypeRadxaOrionO6;
   checkbox varid = DtAcpiPref.Pref,
     prompt = STRING_TOKEN(STR_COMPLIANCE_ACPI),
     help   = STRING_TOKEN(STR_COMPLIANCE_ACPI_HELP),

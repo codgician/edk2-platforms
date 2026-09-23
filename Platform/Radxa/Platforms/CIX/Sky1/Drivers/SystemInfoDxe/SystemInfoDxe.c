@@ -18,6 +18,7 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/GpioLib.h>
 #include <Library/Cs32g051EcLib.h>
+#include <PlatformInfoTypes.h>
 
 #include "SystemInfoDxe.h"
 
@@ -287,11 +288,14 @@ InitializeHardwareInfoWithGPIO (
   UINT32              MemType;
   CHAR8               AsciiBuf[128]   = { 0 };
   CHAR16              UnicodeBuf[128] = { 0 };
+  UINT8               BoardId;
   // FIXME: This is not the type defined in PdEcLib.h`
   CS32G051_RESULT_CMD_GET_IC_STATUS IcStatus;
 
   SystemProductName = (CHAR16 *)FixedPcdGetPtr (PcdSystemProductName);
   HiiSetString (HiiHandle, STRING_TOKEN (STR_PCB_SKU_VALUE), SystemProductName, NULL);
+
+  BoardId = FixedPcdGet8 (PcdBoardId);
 
   // FIXME: We might have more than 1 PD devices
   Status = PdGetIcStatus(0, &IcStatus);
@@ -313,25 +317,28 @@ InitializeHardwareInfoWithGPIO (
     HiiSetString (HiiHandle, STRING_TOKEN (STR_PD_VER_VALUE), L"Undefined", NULL);
   }
 
-  if (!StrCmp (L"Radxa Orion O6T", SystemProductName)) {
-    Status = GpioGetMultiple ((UINT32[]){49, 50}, 2, &MemType);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a: GpioGetMultiple failed: %r\n", __FUNCTION__, Status));
-      HiiSetString(HiiHandle, STRING_TOKEN(STR_MEMORY_TYPE_VALUE), L"Read Error", NULL);
-      return;
-    }
-    Decode2BitMemType (HiiHandle, MemType);
-  } else if (!StrCmp (L"Radxa Orion O6N", SystemProductName)) {
-    Status = GpioGetMultiple ((UINT32[]){49, 50, 57, 60}, 4, &MemType);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a: GpioGetMultiple failed: %r\n", __FUNCTION__, Status));
-      HiiSetString(HiiHandle, STRING_TOKEN(STR_MEMORY_TYPE_VALUE), L"Read Error", NULL);
-      return;
-    }
-    Decode4BitMemType (HiiHandle, MemType);
-  } else {
-    DEBUG ((DEBUG_ERROR, "%a: Unknown product: %a\n", __FUNCTION__, SystemProductName));
-    HiiSetString (HiiHandle, STRING_TOKEN (STR_MEMORY_TYPE_VALUE), L"Product Error", NULL);
+  switch (BoardId) {
+    case TypeRadxaOrionO6T:
+      Status = GpioGetMultiple ((UINT32[]){49, 50}, 2, &MemType);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "%a: GpioGetMultiple failed: %r\n", __FUNCTION__, Status));
+        HiiSetString(HiiHandle, STRING_TOKEN(STR_MEMORY_TYPE_VALUE), L"Read Error", NULL);
+        return;
+      }
+      Decode2BitMemType (HiiHandle, MemType);
+      break;
+    case TypeRadxaOrionO6N:
+      Status = GpioGetMultiple ((UINT32[]){49, 50, 57, 60}, 4, &MemType);
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "%a: GpioGetMultiple failed: %r\n", __FUNCTION__, Status));
+        HiiSetString(HiiHandle, STRING_TOKEN(STR_MEMORY_TYPE_VALUE), L"Read Error", NULL);
+        return;
+      }
+      Decode4BitMemType (HiiHandle, MemType);
+      break;
+    default:
+      DEBUG ((DEBUG_ERROR, "%a: Unknown product: %a\n", __FUNCTION__, SystemProductName));
+      HiiSetString (HiiHandle, STRING_TOKEN (STR_MEMORY_TYPE_VALUE), L"Product Error", NULL);
   }
 }
 

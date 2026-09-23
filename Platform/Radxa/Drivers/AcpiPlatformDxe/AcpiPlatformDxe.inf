@@ -44,7 +44,7 @@
   gRadxaSetupVariableGuid
 
 [Pcd]
-  gArmTokenSpaceGuid.PcdSystemProductName
+  gRadxaTokenSpaceGuid.PcdBoardId
   gEfiMdeModulePkgTokenSpaceGuid.PcdTestKeyUsed
 
 [Depex]
