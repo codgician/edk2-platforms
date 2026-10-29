@@ -157,7 +157,6 @@
 
   PlatformBootHookLib|Platform/CIX/Sky1/Merak/Library/PlatformBootHookLib/PlatformBootHookLib.inf
 
-  TrngLib|Silicon/CIX/Sky1/Library/TrngLib/TrngLib.inf
   RngLib|Silicon/CIX/Sky1/Library/RngLib/RngLib.inf
   DtbUpdateLibSi|Platform/CIX/Sky1/Library/DtbUpdateLibSi/DtbUpdateLib.inf
   ResetSystemLib|Platform/Radxa/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
