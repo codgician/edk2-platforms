@@ -42,7 +42,7 @@
   DebugLib
   PcdLib
   UefiBootServicesTableLib
-  # The constructor reads a variable through gRT.
+  # Only dual-device builds read or persist a setup preference through gRT.
   UefiRuntimeServicesTableLib
   TimerLib
   DTpmDeviceLib

@@ -34,6 +34,7 @@ UINT32                   TestLastDiagnosticCommands;
 UINT32                   TestLastDiagnosticFailures;
 EFI_STATUS               TestEventResult;
 UINTN                    TestInvocations;
+EFI_STATUS               TestInstallResult;
 UINTN                    TestCheckedCloses;
 UINTN                    TestLegacyCloses;
 UINTN                    TestFinalizes;
@@ -48,9 +49,9 @@ UINT8                    *TestSavedCommand;
 UINT8                    *TestSavedResponse;
 UINTN                    TestSavedCommandSize;
 UINTN                    TestSavedResponseSize;
-STATIC jmp_buf           mTerminal;
-STATIC BOOLEAN           mExpectTerminal;
 STATIC EFI_EVENT_NOTIFY  mEbsCallback;
+STATIC jmp_buf           mTerminal;
+STATIC BOOLEAN           mExpectDxeTerminal;
 
 VOID
 TestRequire (
@@ -153,7 +154,11 @@ MockInstall (
   TestProtocol = va_arg (Args, FTPM_INIT_PROTOCOL *);
   TestRequire (va_arg (Args, VOID *) == NULL);
   va_end (Args);
-  return EFI_SUCCESS;
+  if (EFI_ERROR (TestInstallResult)) {
+    TestProtocol = NULL;
+  }
+
+  return TestInstallResult;
 }
 
 EFI_STATUS EFIAPI
@@ -313,9 +318,12 @@ CpuDeadLoop (
   VOID
   )
 {
-  TestRequire (mExpectTerminal);
   TestHalted = TRUE;
-  longjmp (mTerminal, 1);
+  if (mExpectDxeTerminal) {
+    longjmp (mTerminal, 1);
+  }
+
+  abort ();
 }
 
 UINT16 EFIAPI
@@ -384,6 +392,7 @@ TestReset (
   TestCloseResult              = TEEC_SUCCESS;
   TestOpenResult               = TEEC_SUCCESS;
   TestEventResult              = EFI_SUCCESS;
+  TestInstallResult            = EFI_SUCCESS;
   TestFinalizeResult           = TRUE;
   TestCloseSawReadinessRevoked = FALSE;
   TestLastDiagnosticCommands   = 0;
@@ -418,6 +427,19 @@ TestStart (
 }
 
 VOID
+TestExpectDxeTerminalEntry (
+  VOID
+  )
+{
+  mExpectDxeTerminal = TRUE;
+  if (setjmp (mTerminal) == 0) {
+    TestStart ();
+  }
+
+  mExpectDxeTerminal = FALSE;
+}
+
+VOID
 TestExitBootServices (
   VOID
   )
@@ -425,19 +447,6 @@ TestExitBootServices (
   TestAtEbs = TRUE;
   TestRequire (mEbsCallback != NULL);
   mEbsCallback ((EFI_EVENT)(UINTN)1, NULL);
-}
-
-VOID
-TestExpectTerminalExit (
-  VOID
-  )
-{
-  mExpectTerminal = TRUE;
-  if (setjmp (mTerminal) == 0) {
-    TestExitBootServices ();
-  }
-
-  mExpectTerminal = FALSE;
 }
 
 VOID

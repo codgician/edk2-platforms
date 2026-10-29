@@ -361,11 +361,20 @@ ConstructorSelections (
       mSetupDtpSupported        = (Support & 1) != 0;
       mSetupFtpSupported        = (Support & 2) != 0;
       mReadData.TPMDeviceSelect = (UINT8)Selection;
-      Expected                  = (UINT8)Selection;
-      if ((Selection == DTPM_SELECTION) && !mSetupDtpSupported && mSetupFtpSupported) {
-        Expected = FTPM_SELECTION;
-      } else if ((Selection == FTPM_SELECTION) && !mSetupFtpSupported && mSetupDtpSupported) {
-        Expected = DTPM_SELECTION;
+      mExpectedReads           = (Support == 3) ? 1 : 0;
+      switch (Support) {
+        case 0:
+          Expected = 0;
+          break;
+        case 1:
+          Expected = DTPM_SELECTION;
+          break;
+        case 2:
+          Expected = FTPM_SELECTION;
+          break;
+        default:
+          Expected = (UINT8)Selection;
+          break;
       }
 
       assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
@@ -397,11 +406,20 @@ ConstructorDefaults (
       mSetupDtpSupported = (Support & 1) != 0;
       mSetupFtpSupported = (Support & 2) != 0;
       mReadStatus        = EFI_NOT_FOUND;
-      Expected           = mSetupDefault;
-      if ((Expected == DTPM_SELECTION) && !mSetupDtpSupported && mSetupFtpSupported) {
-        Expected = FTPM_SELECTION;
-      } else if ((Expected == FTPM_SELECTION) && !mSetupFtpSupported && mSetupDtpSupported) {
-        Expected = DTPM_SELECTION;
+      mExpectedReads     = (Support == 3) ? 1 : 0;
+      switch (Support) {
+        case 0:
+          Expected = 0;
+          break;
+        case 1:
+          Expected = DTPM_SELECTION;
+          break;
+        case 2:
+          Expected = FTPM_SELECTION;
+          break;
+        default:
+          Expected = mSetupDefault;
+          break;
       }
 
       assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
@@ -409,6 +427,89 @@ ConstructorDefaults (
       CheckConsumed ();
     }
   }
+}
+
+/** Prove O6 neither consumes nor persists any setup-variable state. **/
+STATIC
+VOID
+CheckO6Build (
+  VOID
+  )
+{
+  mSetupDtpSupported = FALSE;
+  mSetupFtpSupported = TRUE;
+  mSetupDefault     = 0;
+  mExpectedReads    = 0;
+  assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
+  CheckRoute (FTPM_SELECTION);
+  mExpectedFtpRequests = 1;
+  assert_int_equal (Tpm2RequestUseTpm (), EFI_SUCCESS);
+  assert_int_equal (DTpmSwitchFTpm (), EFI_UNSUPPORTED);
+  assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
+  CheckConsumed ();
+}
+
+STATIC
+VOID
+O6IgnoresSetupVariable (
+  VOID  **State
+  )
+{
+  UINTN  Index;
+
+  (VOID)State;
+  for (Index = 0; Index < 256; Index++) {
+    Reset ();
+    mReadData.TPMDeviceSelect = (UINT8)Index;
+    CheckO6Build ();
+  }
+
+  for (Index = 0; Index <= sizeof (mReadData) + 1; Index++) {
+    Reset ();
+    mReadSize = Index;
+    CheckO6Build ();
+  }
+
+  for (Index = 0; Index <= 128; Index++) {
+    Reset ();
+    mReadAttributes = (Index == 128) ? MAX_UINT32 : (UINT32)Index;
+    CheckO6Build ();
+  }
+
+  for (Index = 0; Index < sizeof (mErrors) / sizeof (mErrors[0]); Index++) {
+    Reset ();
+    mReadStatus = mErrors[Index];
+    CheckO6Build ();
+  }
+}
+
+STATIC
+VOID
+SingleDeviceDoesNotPersistOrFallback (
+  VOID  **State
+  )
+{
+  (VOID)State;
+  Reset ();
+  mSetupFtpSupported = FALSE;
+  mExpectedReads     = 0;
+  assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
+  assert_int_equal (DTpmSwitchFTpm (), EFI_UNSUPPORTED);
+  mExpectedDtpRequests = 1;
+  mDtpRequestStatus    = EFI_NOT_FOUND;
+  assert_int_equal (Tpm2RequestUseTpm (), EFI_NOT_FOUND);
+  CheckRoute (DTPM_SELECTION);
+  CheckConsumed ();
+
+  Reset ();
+  mSetupDtpSupported = FALSE;
+  mSetupFtpSupported = FALSE;
+  mExpectedReads     = 0;
+  assert_int_equal (Tpm2DeviceLibConstructor (), EFI_SUCCESS);
+  assert_int_equal (DTpmSwitchFTpm (), EFI_UNSUPPORTED);
+  assert_int_equal (Tpm2RequestUseTpm (), EFI_UNSUPPORTED);
+  CheckRoute (0);
+  CheckConsumed ();
 }
 
 STATIC
@@ -560,6 +661,8 @@ main (
     cmocka_unit_test (ConstructorErrors),
     cmocka_unit_test (ConstructorSelections),
     cmocka_unit_test (ConstructorDefaults),
+    cmocka_unit_test (O6IgnoresSetupVariable),
+    cmocka_unit_test (SingleDeviceDoesNotPersistOrFallback),
     cmocka_unit_test (ZeroedReadBuffers),
     cmocka_unit_test (FallbackSizes),
     cmocka_unit_test (FallbackAttributesAndErrors),

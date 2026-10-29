@@ -306,8 +306,8 @@ STATIC FTPM_INIT_PROTOCOL  mFtpmProtocol = {
 
 /**
   Runs at TPL_CALLBACK, after Tcg2Dxe's TPL_NOTIFY final measurements.
-  A callback cannot veto EBS: halt on unconfirmed close rather than hand
-  Linux a still-owned single-instance TA. No variable or allocation calls.
+  Preserve failed-close ownership but allow OS handoff: the OS may boot
+  without a TPM if it cannot open the single-session TA. No variable calls.
 **/
 STATIC
 VOID
@@ -322,12 +322,10 @@ OnExitBootServices (
   mHandoffStarted = TRUE;
   mSessionUsable  = FALSE;
   if (mSessionOpen) {
-    // C1's client implementation must reserve its close message during init.
-    // No driver-owned buffer can be passed through this fixed API.
+    // The client uses static SHM and allocation records reserved at init.
     Result = OpteeClientCloseSession (&mSession);
     if (Result != TEEC_SUCCESS) {
-      DEBUG ((DEBUG_ERROR, "fTPM: EBS close failed: 0x%x; refusing OS handoff\n", Result));
-      CpuDeadLoop ();
+      DEBUG ((DEBUG_ERROR, "fTPM: EBS close failed: 0x%x; continuing OS handoff\n", Result));
       return;
     }
 
@@ -335,8 +333,8 @@ OnExitBootServices (
   }
 
   // The client's ordinary finalizer frees pool memory. EBS has already
-  // validated the memory map: retain inert bookkeeping instead. The OP-TEE
-  // close path must quiesce its preallocated reserved-SHM handoff resources.
+  // validated the memory map: retain inert bookkeeping instead. Linux's
+  // OP-TEE probe drains stale SHM cache entries during ownership transfer.
   mClientReady = FALSE;
 }
 
@@ -407,8 +405,8 @@ FtpmDxeEntryPoint (
   if (EFI_ERROR (Status)) {
     OnExitBootServices (NULL, NULL);
     TEEC_FinalizeContext (&mContext);
-    if (!OpteeClientApiFinalize ()) {
-      DEBUG ((DEBUG_ERROR, "fTPM: DXE error cleanup could not finalize client\n"));
+    if (mSessionOpen || !OpteeClientApiFinalize ()) {
+      DEBUG ((DEBUG_ERROR, "fTPM: DXE error cleanup could not close/finalize client\n"));
       CpuDeadLoop ();
     }
     gBS->CloseEvent (mExitBootServicesEvent);

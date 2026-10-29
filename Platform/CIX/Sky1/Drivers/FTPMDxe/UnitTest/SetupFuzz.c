@@ -178,18 +178,19 @@ LLVMFuzzerTestOneInput (
     mSize = Data[0] % (sizeof (mSetup) + 2);
   }
 
-  mExpectedSelection = mStatus == EFI_SUCCESS && mSize == sizeof (mSetup) &&
-                       mAttributes == SETUP_ATTRIBUTES ? mSetup.TPMDeviceSelect : mSetupDefault;
-  if ((mExpectedSelection == 1) && !mSetupDtpSupported && mSetupFtpSupported) {
-    mExpectedSelection = 2;
-  } else if ((mExpectedSelection == 2) && !mSetupFtpSupported && mSetupDtpSupported) {
+  if (!mSetupDtpSupported) {
+    mExpectedSelection = mSetupFtpSupported ? 2 : 0;
+  } else if (!mSetupFtpSupported) {
     mExpectedSelection = 1;
+  } else {
+    mExpectedSelection = mStatus == EFI_SUCCESS && mSize == sizeof (mSetup) &&
+                         mAttributes == SETUP_ATTRIBUTES ? mSetup.TPMDeviceSelect : mSetupDefault;
   }
 
   mReads = 0;
   Require (Tpm2DeviceLibConstructor () == EFI_SUCCESS);
   EFI_STATUS  Status = Tpm2RequestUseTpm ();
   Require (Status == ((mExpectedSelection == 1 || mExpectedSelection == 2) ? EFI_SUCCESS : EFI_UNSUPPORTED));
-  Require (mReads == 1);
+  Require (mReads == ((mSetupDtpSupported && mSetupFtpSupported) ? 1 : 0));
   return 0;
 }

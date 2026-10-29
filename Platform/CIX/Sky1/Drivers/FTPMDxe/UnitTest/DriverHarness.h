@@ -22,6 +22,7 @@ extern TEEC_Result         TestInvokeResult;
 extern TEEC_Result         TestCloseResult;
 extern TEEC_Result         TestOpenResult;
 extern EFI_STATUS          TestEventResult;
+extern EFI_STATUS          TestInstallResult;
 extern BOOLEAN             TestFinalizeResult;
 extern BOOLEAN             TestCloseSawReadinessRevoked;
 extern UINT32              TestLastDiagnosticCommands;
@@ -53,12 +54,12 @@ TestStart (
   );
 
 VOID
-TestExitBootServices (
+TestExpectDxeTerminalEntry (
   VOID
   );
 
 VOID
-TestExpectTerminalExit (
+TestExitBootServices (
   VOID
   );
 

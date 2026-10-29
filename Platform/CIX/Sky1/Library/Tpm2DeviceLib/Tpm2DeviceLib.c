@@ -66,9 +66,10 @@ ReadPlatformSetup (
 }
 
 /**
-  Cache a validated setup selection, or the build default on any invalid read.
+  Select the sole build-supported TPM independently of setup storage.
+  Only dual-device builds consume the exact setup schema or build default.
 
-  @retval EFI_SUCCESS  A selection is cached, including supported-device fallback.
+  @retval EFI_SUCCESS  The build-supported device selection is cached.
 **/
 EFI_STATUS
 EFIAPI
@@ -79,24 +80,21 @@ Tpm2DeviceLibConstructor (
   EFI_STATUS           Status;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
 
-  if (TPMDeviceSelect == 255) {
+  if (TPMDeviceSelect != 255) {
+    return EFI_SUCCESS;
+  }
+
+  if (!FixedPcdGetBool (PcdDTPMSupport)) {
+    TPMDeviceSelect = FixedPcdGetBool (PcdFTPMSupport) ? FTPM_ENABLE : TPM_DISABLE;
+  } else if (!FixedPcdGetBool (PcdFTPMSupport)) {
+    TPMDeviceSelect = DTPM_ENABLE;
+  } else {
     Status = ReadPlatformSetup (&PlatformSetupVar);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "%a Invalid platform setup: %r; using build default\n", __FUNCTION__, Status));
       TPMDeviceSelect = FixedPcdGet8 (PcdDefaultTpmDeviceSelect);
     } else {
       TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
-    }
-
-    //
-    // A selection this firmware cannot serve, e.g. the dTPM default stored
-    // by a build without TPM support, falls back to the built-in device.
-    // Deciding here keeps every module consistent from its first command.
-    //
-    if ((TPMDeviceSelect == DTPM_ENABLE) && !FixedPcdGetBool (PcdDTPMSupport) && FixedPcdGetBool (PcdFTPMSupport)) {
-      TPMDeviceSelect = FTPM_ENABLE;
-    } else if ((TPMDeviceSelect == FTPM_ENABLE) && !FixedPcdGetBool (PcdFTPMSupport) && FixedPcdGetBool (PcdDTPMSupport)) {
-      TPMDeviceSelect = DTPM_ENABLE;
     }
   }
 
@@ -141,6 +139,11 @@ DTpmSwitchFTpm (
   EFI_STATUS           Status;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
 
+  // Persist a preference only when this build actually offers both devices.
+  if (!FixedPcdGetBool (PcdDTPMSupport) || !FixedPcdGetBool (PcdFTPMSupport)) {
+    return EFI_UNSUPPORTED;
+  }
+
   Status = ReadPlatformSetup (&PlatformSetupVar);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
@@ -183,6 +186,10 @@ Tpm2RequestUseTpm (
   switch (TPMDeviceSelect) {
     case DTPM_ENABLE:
       Status = DTpmRequestUseTpm ();
+      if (!FixedPcdGetBool (PcdFTPMSupport)) {
+        return Status;
+      }
+
       if (EFI_ERROR (Status)) {
         DEBUG ((DEBUG_INFO, "DTPM not detect, change to FTPM interface\n"));
         DTpmSwitchFTpm ();

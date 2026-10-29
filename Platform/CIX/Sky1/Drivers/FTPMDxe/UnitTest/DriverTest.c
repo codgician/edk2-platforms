@@ -253,21 +253,68 @@ CloseSuccessTwice (
 }
 
 STATIC void
-CloseFailureTerminal (
+CloseFailureReturns (
   void  **State
   )
 {
-  TestCloseResult = TEEC_ERROR_COMMUNICATION;
-  TestExpectTerminalExit ();
-  assert_true (TestHalted);
+  CONST TEEC_Result  Failures[] = {
+    TEEC_ERROR_GENERIC, TEEC_ERROR_OUT_OF_MEMORY,
+    TEEC_ERROR_COMMUNICATION, TEEC_ERROR_BUSY
+  };
+  UINTN   Index;
+  UINTN   Writes;
+  UINT32  Size;
+
+  for (Index = 0; Index < sizeof (Failures) / sizeof (Failures[0]); Index++) {
+    Before (State);
+    TestCloseResult = Failures[Index];
+    Writes          = TestVariableWrites;
+    TestExitBootServices ();
+    assert_false (TestHalted);
+    assert_int_equal (TestCheckedCloses, 1);
+    assert_int_equal (TestFinalizes, 0);
+    assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
+    assert_true (TestCloseSawReadinessRevoked);
+    assert_true (TestSessionStillOpen ());
+    assert_int_equal (TestProtocol->FTPMOpenSession (TestProtocol), EFI_NOT_READY);
+    Size = 32;
+    assert_int_equal (Submit (&Size), EFI_NOT_READY);
+    TestExitBootServices ();
+    assert_int_equal (TestCheckedCloses, 2);
+    assert_true (TestSessionStillOpen ());
+    assert_int_equal (TestFinalizes, 0);
+    assert_int_equal (TestVariableWrites, Writes);
+    TestCloseResult = TEEC_SUCCESS;
+    TestExitBootServices ();
+    assert_int_equal (TestCheckedCloses, 3);
+    assert_false (TestSessionStillOpen ());
+    assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
+    TestExitBootServices ();
+    assert_int_equal (TestCheckedCloses, 3);
+  }
+}
+
+STATIC void
+InstallFailureCleanup (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_null (TestProtocol);
   assert_int_equal (TestCheckedCloses, 1);
-  assert_int_equal (TestFinalizes, 0);
-  assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
-  assert_true (TestCloseSawReadinessRevoked);
+  assert_false (TestSessionStillOpen ());
+  assert_int_equal (TestFinalizes, 1);
+  assert_false (TestAtEbs);
+
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCloseResult   = TEEC_ERROR_COMMUNICATION;
+  TestExpectDxeTerminalEntry ();
+  assert_true (TestHalted);
+  assert_false (TestAtEbs);
   assert_true (TestSessionStillOpen ());
-  // A repeated event must not claim a failed close succeeded.
-  TestExpectTerminalExit ();
-  assert_int_equal (TestCheckedCloses, 2);
   assert_int_equal (TestFinalizes, 0);
 }
 
@@ -391,7 +438,8 @@ main (
     cmocka_unit_test_setup (TaErrors,                     Before),
     cmocka_unit_test_setup (SecretIsolation,              Before),
     cmocka_unit_test_setup (CloseSuccessTwice,            Before),
-    cmocka_unit_test_setup (CloseFailureTerminal,         Before),
+    cmocka_unit_test_setup (CloseFailureReturns,          Before),
+    cmocka_unit_test_setup (InstallFailureCleanup,        Before),
     cmocka_unit_test_setup (OpenFailure,                  Before),
     cmocka_unit_test_setup (EventRegistrationFailure,     Before),
     cmocka_unit_test_setup (FinalMeasurementBeforeClose,  Before),
