@@ -936,11 +936,6 @@ PlatformBootManagerBeforeConsole (
   }
 
   //
-  // Process TPM PPI request; this may require keyboard input
-  //
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-
-  //
   // Register platform-specific boot options and keyboard shortcuts.
   //
   PlatformRegisterOptionsAndKeys ();
@@ -1131,6 +1126,13 @@ PlatformBootManagerAfterConsole (
   UINTN                         Index;
   UINTN                         VarSize;
   UINT8                         FarmEnableFlag;
+
+  //
+  // Process TPM PPI requests now that consoles are connected: a request that
+  // needs confirmation waits for a key press. This precedes ReadyToBoot,
+  // where the TPM platform hierarchy gets locked.
+  //
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
 
   FirmwareVerLength = StrLen (PcdGetPtr (PcdFirmwareVersionString));
 
