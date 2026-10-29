@@ -38,6 +38,8 @@
 
 [LibraryClasses]
   BaseLib
+  BaseMemoryLib
+  DebugLib
   PcdLib
   UefiBootServicesTableLib
   # The constructor reads a variable through gRT.
@@ -52,6 +54,7 @@
 [FixedPcd]
   gCixPlatformTokenSpaceGuid.PcdDTPMSupport
   gCixPlatformTokenSpaceGuid.PcdFTPMSupport
+  gCixPlatformTokenSpaceGuid.PcdDefaultTpmDeviceSelect
 
 [Protocols]
 

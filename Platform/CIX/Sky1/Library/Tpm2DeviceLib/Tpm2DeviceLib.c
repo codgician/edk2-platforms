@@ -17,7 +17,6 @@ Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/Tpm2CommandLib.h>
-#include <string.h>
 #include <PlatformSetupVar.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include "Tpm2Fifo.h"
@@ -25,16 +24,51 @@ Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
 STATIC UINT8  TPMDeviceSelect = 255;
 
 /**
-  The constructor function caches the pointer to PEI services.
+  Read only the complete boot-service setup schema emitted by the setup writer.
 
-  The constructor function caches the pointer to PEI services.
-  It will always return EFI_SUCCESS.
+  @param[out] PlatformSetupVar  Zero-initialized setup variable buffer.
 
-  @param  FfsHeader   Pointer to FFS header the loaded driver.
-  @param  PeiServices Pointer to the PEI services.
+  @retval EFI_SUCCESS           The complete expected schema was read.
+  @retval EFI_COMPROMISED_DATA  The returned size or attributes were invalid.
+  @return                      An error returned by GetVariable.
+**/
+STATIC
+EFI_STATUS
+ReadPlatformSetup (
+  OUT PLATFORM_SETUP_DATA  *PlatformSetupVar
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       VarSize;
+  UINT32      Attributes;
 
-  @retval EFI_SUCCESS   The constructor always returns EFI_SUCCESS.
+  ZeroMem (PlatformSetupVar, sizeof (*PlatformSetupVar));
+  VarSize    = sizeof (*PlatformSetupVar);
+  Attributes = 0;
+  Status     = gRT->GetVariable (
+                      PLATFORM_SETUP_VAR,
+                      &gPlatformSetupVariableGuid,
+                      &Attributes,
+                      &VarSize,
+                      PlatformSetupVar
+                      );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
+  if ((VarSize != sizeof (*PlatformSetupVar)) ||
+      (Attributes != (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS)))
+  {
+    return EFI_COMPROMISED_DATA;
+  }
+
+  return EFI_SUCCESS;
+}
+
+/**
+  Cache a validated setup selection, or the build default on any invalid read.
+
+  @retval EFI_SUCCESS  A selection is cached, including supported-device fallback.
 **/
 EFI_STATUS
 EFIAPI
@@ -42,24 +76,17 @@ Tpm2DeviceLibConstructor (
   VOID
   )
 {
-  EFI_STATUS           Status = EFI_SUCCESS;
+  EFI_STATUS           Status;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
-  UINTN                VarSize = sizeof (PLATFORM_SETUP_DATA);
 
   if (TPMDeviceSelect == 255) {
-    Status = gRT->GetVariable (
-                    PLATFORM_SETUP_VAR,
-                    &gPlatformSetupVariableGuid,
-                    NULL,
-                    &VarSize,
-                    &PlatformSetupVar
-                    );
+    Status = ReadPlatformSetup (&PlatformSetupVar);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
-      return Status;
+      DEBUG ((DEBUG_ERROR, "%a Invalid platform setup: %r; using build default\n", __FUNCTION__, Status));
+      TPMDeviceSelect = FixedPcdGet8 (PcdDefaultTpmDeviceSelect);
+    } else {
+      TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
     }
-
-    TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
 
     //
     // A selection this firmware cannot serve, e.g. the dTPM default stored
@@ -73,7 +100,7 @@ Tpm2DeviceLibConstructor (
     }
   }
 
-  return Status;
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -111,17 +138,10 @@ DTpmSwitchFTpm (
   VOID
   )
 {
-  EFI_STATUS           Status = EFI_SUCCESS;
+  EFI_STATUS           Status;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
-  UINTN                VarSize = sizeof (PLATFORM_SETUP_DATA);
 
-  Status = gRT->GetVariable (
-                  PLATFORM_SETUP_VAR,
-                  &gPlatformSetupVariableGuid,
-                  NULL,
-                  &VarSize,
-                  &PlatformSetupVar
-                  );
+  Status = ReadPlatformSetup (&PlatformSetupVar);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
     return Status;
