@@ -21,56 +21,21 @@ formset
     name  = TCG2_CONFIGURATION_INFO,
     guid  = TCG2_CONFIG_FORM_SET_GUID;
 
-  efivarstore TCG2_CONFIGURATION,
-    varid = TCG2_CONFIGURATION_VARSTORE_ID,
-    attribute = 0x03,  // EFI variable attributes  EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE
-    name  = TCG2_CONFIGURATION,
-    guid  = TCG2_CONFIG_FORM_SET_GUID;
-
-  efivarstore TCG2_VERSION,
-    varid = TCG2_VERSION_VARSTORE_ID,
-    attribute = 0x03,  // EFI variable attributes  EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE
-    name  = TCG2_VERSION,
-    guid  = TCG2_CONFIG_FORM_SET_GUID;
-
-  efivarstore PLATFORM_SETUP_DATA,
-    attribute = EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_NON_VOLATILE,
-    name  = PlatformSetupVar,
-    guid  = PLATFORM_SETUP_VARIABLE_GUID;
 
   form formid = TCG2_CONFIGURATION_FORM_ID,
     title = STRING_TOKEN(STR_TCG2_TITLE);
 
     subtitle text = STRING_TOKEN(STR_NULL);
 
-      oneof varid   = PlatformSetupVar.TPMDeviceSelect,
-          prompt      = STRING_TOKEN(STR_TCG2_DEVICE_SELECT_PROMPT),
-          help        = STRING_TOKEN(STR_TCG2_DEVICE_SELECT_HELP),
-          default     = FixedPcdGet8 (PcdDefaultTpmDeviceSelect),
-          suppressif NOT ideqval TCG2_CONFIGURATION_INFO.DTPMSupported == 1;
-          option text = STRING_TOKEN(TCG2_DTPM_ENABLED),  value = 1, flags = RESET_REQUIRED;
-          endif;
-          suppressif NOT ideqval TCG2_CONFIGURATION_INFO.FTPMSupported == 1;
-          option text = STRING_TOKEN(TCG2_FTPM_ENABLED),  value = 2, flags = RESET_REQUIRED;
-          endif;
-      endoneof;
+    text
+      help = STRING_TOKEN(STR_TCG2_DEVICE_SELECT_HELP),
+      text = STRING_TOKEN(STR_TCG2_DEVICE_SELECT_PROMPT),
+      text = STRING_TOKEN(TCG2_FTPM_ENABLED);
     text
       help   = STRING_TOKEN(STR_TCG2_DEVICE_STATE_HELP),
       text   = STRING_TOKEN(STR_TCG2_DEVICE_STATE_PROMPT),
         text   = STRING_TOKEN(STR_TCG2_DEVICE_STATE_CONTENT);
 
-    oneof varid  = TCG2_CONFIGURATION.TpmDevice,
-          questionid = KEY_TPM_DEVICE,
-          prompt = STRING_TOKEN(STR_TCG2_DEVICE_PROMPT),
-          help   = STRING_TOKEN(STR_TCG2_DEVICE_HELP),
-          flags  = INTERACTIVE,
-            option text = STRING_TOKEN(STR_TCG2_TPM_1_2),          value = TPM_DEVICE_1_2,          flags = DEFAULT | MANUFACTURING | RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_TPM_2_0_DTPM),     value = TPM_DEVICE_2_0_DTPM,     flags = RESET_REQUIRED;
-    endoneof;
-
-    suppressif ideqvallist TCG2_CONFIGURATION.TpmDevice == TPM_DEVICE_NULL TPM_DEVICE_1_2;
-
-    subtitle text = STRING_TOKEN(STR_NULL);
 
     text
       help   = STRING_TOKEN(STR_TPM2_ACPI_HID_HELP),
@@ -82,14 +47,6 @@ formset
       text   = STRING_TOKEN(STR_TPM2_ACPI_REVISION_STATE_PROMPT),
         text   = STRING_TOKEN(STR_TPM2_ACPI_REVISION_STATE_CONTENT);
 
-    oneof varid  = TCG2_VERSION.Tpm2AcpiTableRev,
-          questionid = KEY_TPM2_ACPI_REVISION,
-          prompt = STRING_TOKEN(STR_TPM2_ACPI_REVISION_PROMPT),
-          help   = STRING_TOKEN(STR_TPM2_ACPI_REVISION_HELP),
-          flags  = INTERACTIVE,
-            option text = STRING_TOKEN(STR_TPM2_ACPI_REVISION_3),     value = TPM2_ACPI_REVISION_3,     flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TPM2_ACPI_REVISION_4),     value = TPM2_ACPI_REVISION_4,     flags = DEFAULT | MANUFACTURING | RESET_REQUIRED;
-    endoneof;
 
     subtitle text = STRING_TOKEN(STR_NULL);
 
@@ -103,24 +60,9 @@ formset
       text   = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_CAPABILITY_PROMPT),
         text   = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_CAPABILITY_CONTENT);
 
-    suppressif ideqval TCG2_CONFIGURATION_INFO.TpmDeviceInterfacePtpFifoSupported == 0
-            OR ideqval TCG2_CONFIGURATION_INFO.TpmDeviceInterfacePtpCrbSupported == 0;
-    oneof varid  = TCG2_CONFIGURATION_INFO.TpmDeviceInterfaceAttempt,
-          questionid = KEY_TPM_DEVICE_INTERFACE,
-          prompt = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_PROMPT),
-          help   = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_HELP),
-          flags  = INTERACTIVE,
-            option text = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_TIS),          value = TPM_DEVICE_INTERFACE_TIS,          flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_PTP_FIFO),     value = TPM_DEVICE_INTERFACE_PTP_FIFO,     flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_DEVICE_INTERFACE_PTP_CRB),      value = TPM_DEVICE_INTERFACE_PTP_CRB,      flags = DEFAULT | MANUFACTURING | RESET_REQUIRED;
-    endoneof;
-    endif;
-
-    endif;
 
     subtitle text = STRING_TOKEN(STR_NULL);
 
-    suppressif ideqvallist TCG2_CONFIGURATION.TpmDevice == TPM_DEVICE_NULL TPM_DEVICE_1_2;
     text
       help   = STRING_TOKEN(STR_TPM2_ACTIVE_HASH_ALGO_HELP),
       text   = STRING_TOKEN(STR_TPM2_ACTIVE_HASH_ALGO),
@@ -142,14 +84,6 @@ formset
       text   = STRING_TOKEN(STR_TCG2_PPI_VERSION_STATE_PROMPT),
         text   = STRING_TOKEN(STR_TCG2_PPI_VERSION_STATE_CONTENT);
 
-    oneof varid  = TCG2_VERSION.PpiVersion,
-          questionid = KEY_TCG2_PPI_VERSION,
-          prompt = STRING_TOKEN(STR_TCG2_PPI_VERSION_PROMPT),
-          help   = STRING_TOKEN(STR_TCG2_PPI_VERSION_HELP),
-          flags  = INTERACTIVE,
-            option text = STRING_TOKEN(STR_TCG2_PPI_VERSION_1_2), value = TCG2_PPI_VERSION_1_2, flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_PPI_VERSION_1_3), value = TCG2_PPI_VERSION_1_3, flags = DEFAULT | MANUFACTURING | RESET_REQUIRED;
-    endoneof;
 
     oneof name = Tpm2Operation,
           questionid = KEY_TPM2_OPERATION,
@@ -157,15 +91,12 @@ formset
           help   = STRING_TOKEN(STR_TCG2_OPERATION_HELP),
           flags  = INTERACTIVE | NUMERIC_SIZE_1,
             option text = STRING_TOKEN(STR_TCG2_NO_ACTION), value = TCG2_PHYSICAL_PRESENCE_NO_ACTION, flags = DEFAULT | MANUFACTURING | RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_ENABLE), value = TCG2_PHYSICAL_PRESENCE_ENABLE, flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_DISABLE), value = TCG2_PHYSICAL_PRESENCE_DISABLE, flags = RESET_REQUIRED;
             option text = STRING_TOKEN(STR_TCG2_CLEAR), value = TCG2_PHYSICAL_PRESENCE_CLEAR, flags = RESET_REQUIRED;
             option text = STRING_TOKEN(STR_TCG2_SET_PCD_BANKS), value = TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS, flags = RESET_REQUIRED;
             suppressif ideqval TCG2_CONFIGURATION_INFO.ChangeEPSSupported == 0;
             option text = STRING_TOKEN(STR_TCG2_CHANGE_EPS), value = TCG2_PHYSICAL_PRESENCE_CHANGE_EPS, flags = RESET_REQUIRED;
             endif
             option text = STRING_TOKEN(STR_TCG2_LOG_ALL_DIGESTS), value = TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS, flags = RESET_REQUIRED;
-            option text = STRING_TOKEN(STR_TCG2_DISABLE_ENDORSEMENT_ENABLE_STORAGE_HIERARCHY), value = TCG2_PHYSICAL_PRESENCE_DISABLE_ENDORSEMENT_ENABLE_STORAGE_HIERARCHY, flags = RESET_REQUIRED;
     endoneof;
 
     suppressif NOT questionref(Tpm2Operation) == TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS;
@@ -174,10 +105,10 @@ formset
             prompt  = STRING_TOKEN(STR_TCG2_OPERATION_PARAMETER),
             help    = STRING_TOKEN(STR_TCG2_OPERATION_PARAMETER_HELP),
             flags   = DISPLAY_UINT_HEX | INTERACTIVE | NUMERIC_SIZE_4,
-            minimum = 0,
-            maximum = 0xFFFFFFFF,
+            minimum = 1,
+            maximum = 0x1F,
             step    = 0,
-            default = 0,
+            default = 2,
     endnumeric;
     endif;
 
@@ -256,7 +187,6 @@ formset
     endcheckbox;
   endif;
 
-    endif;
 
   endform;
 

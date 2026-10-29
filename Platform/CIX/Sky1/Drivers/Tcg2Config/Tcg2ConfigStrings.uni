@@ -12,7 +12,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #string STR_TCG2_HELP                       #language en-US "Press <Enter> to select TCG2 Setup options."
 
 #string STR_TCG2_DEVICE_SELECT_PROMPT        #language en-US "TPM Device Selection"
-#string STR_TCG2_DEVICE_SELECT_HELP          #language en-US "Current TPM Device: Disable, Discrete TPM, or Firmware TPM"
+#string STR_TCG2_DEVICE_SELECT_HELP          #language en-US "Firmware TPM is fixed by platform policy. Setup cannot disable or switch it. Security-relevant changes are queued for fresh console confirmation on the next boot."
 #string STR_TCG2_DEVICE_SELECT_CONTENT       #language en-US ""
 
 #string TCG2_DISABLED                        #language en-US "Disable"

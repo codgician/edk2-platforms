@@ -1,8 +1,8 @@
 ## @file
-#  Set TPM device type
+#  Select the fixed TPM2 instance used by the Sky1 firmware TPM backend.
 #
-#  This module initializes TPM device type based on variable and detection.
-#  NOTE: This module is only for reference only, each platform should have its own setup page.
+#  No mutable setup or S3 detection variable can disable TPM selection or
+#  switch to TPM1.2. The transport must independently enforce fixed fTPM policy.
 #
 # Copyright (c) 2015 - 2018, Intel Corporation. All rights reserved.<BR>
 # SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -29,7 +29,6 @@
   Tcg2ConfigPeim.c
   Tcg2ConfigNvData.h
   Tcg2Internal.h
-  TpmDetection.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -44,28 +43,18 @@
   DebugLib
   PcdLib
   TimerLib
-  Tpm12CommandLib
-  Tpm12DeviceLib
 
 [Guids]
-  ## SOMETIMES_CONSUMES ## Variable:L"TCG2_CONFIGURATION"
-  ## SOMETIMES_CONSUMES ## Variable:L"TCG2_DEVICE_DETECTION"
-  gTcg2ConfigFormSetGuid
   gEfiTpmDeviceSelectedGuid           ## PRODUCES             ## GUID    # Used as a PPI GUID
-  gEfiTpmDeviceInstanceNoneGuid       ## SOMETIMES_CONSUMES   ## GUID    # TPM device identifier
 
 [Ppis]
-  gEfiPeiReadOnlyVariable2PpiGuid     ## CONSUMES
-  gPeiTpmInitializationDonePpiGuid    ## SOMETIMES_PRODUCES
+  gEfiPeiMasterBootModePpiGuid       ## CONSUMES
 
 [Pcd]
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid                 ## PRODUCES
-  gEfiSecurityPkgTokenSpaceGuid.PcdTpmInitializationPolicy         ## PRODUCES
-  gEfiSecurityPkgTokenSpaceGuid.PcdTpmAutoDetection                ## CONSUMES
 
 [Depex]
-  gEfiPeiMasterBootModePpiGuid AND
-  gEfiPeiReadOnlyVariable2PpiGuid
+  gEfiPeiMasterBootModePpiGuid
 
 [UserExtensions.TianoCore."ExtraFiles"]
   Tcg2ConfigPeiExtra.uni
