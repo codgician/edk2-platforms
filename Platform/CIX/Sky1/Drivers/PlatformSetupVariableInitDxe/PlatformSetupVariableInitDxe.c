@@ -217,7 +217,11 @@ UpdateConfigParams (
     ConfigData->Pm.Dpu4ClkGating         = PlatformSetupVar.Dpu4ClkGating;
     ConfigData->Pm.VpuClkGating          = PlatformSetupVar.VpuClkGating;
     ConfigData->Misc.CpuCppcType         = PlatformSetupVar.CpuCppcType;
-    ConfigData->Spi.TPMDeviceSelect      = PlatformSetupVar.TPMDeviceSelect;
+    //
+    // The TPM backend is a build-time choice; an unauthenticated setup
+    // variable must not be able to switch or disable it for the next boot.
+    //
+    ConfigData->Spi.TPMDeviceSelect      = FixedPcdGet8 (PcdDefaultTpmDeviceSelect);
     ConfigData->Misc.SmmuEnable          = PlatformSetupVar.SmmuEnable;
   }
 }
