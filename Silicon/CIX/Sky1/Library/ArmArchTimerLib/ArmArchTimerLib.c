@@ -16,7 +16,7 @@
 #include <Library/PcdLib.h>
 #include <Library/ArmGenericTimerCounterLib.h>
 
-#define TICKS_PER_MICRO_SEC  (PcdGet32 (PcdArmArchTimerFreqInHz)/1000000U)
+#define TICKS_PER_MICRO_SEC  (PcdGet32 (PcdCixArchTimerFreqInHz)/1000000U)
 
 // Select appropriate multiply function for platform architecture.
 #ifdef MDE_CPU_ARM
@@ -39,7 +39,7 @@ TimerConstructor (
     // Check if Architectural Timer frequency is pre-determined by the platform
     // (ie. nonzero).
     //
-    if (PcdGet32 (PcdArmArchTimerFreqInHz) != 0) {
+    if (PcdGet32 (PcdCixArchTimerFreqInHz) != 0) {
       //
       // Check if ticks/uS is not 0. The Architectural timer runs at constant
       // frequency, irrespective of CPU frequency. According to Generic Timer
@@ -55,7 +55,7 @@ TimerConstructor (
       // here.
       //
       if (ArmHasSecurityExtensions ()) {
-        ArmGenericTimerSetTimerFreq (PcdGet32 (PcdArmArchTimerFreqInHz));
+        ArmGenericTimerSetTimerFreq (PcdGet32 (PcdCixArchTimerFreqInHz));
       }
 
  #endif
@@ -90,7 +90,7 @@ GetPlatformTimerFreq (
 {
   UINTN  TimerFreq;
 
-  TimerFreq = PcdGet32 (PcdArmArchTimerFreqInHz);
+  TimerFreq = PcdGet32 (PcdCixArchTimerFreqInHz);
   if (TimerFreq == 0) {
     TimerFreq = ArmGenericTimerGetTimerFreq ();
   }

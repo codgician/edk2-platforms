@@ -160,9 +160,10 @@
   TrngLib|Silicon/CIX/Sky1/Library/TrngLib/TrngLib.inf
   RngLib|Silicon/CIX/Sky1/Library/RngLib/RngLib.inf
   DtbUpdateLibSi|Platform/CIX/Sky1/Library/DtbUpdateLibSi/DtbUpdateLib.inf
+  ResetSystemLib|Platform/Radxa/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
 
 [LibraryClasses.common.DXE_RUNTIME_DRIVER]
-  EfiResetSystemLib|Platform/Radxa/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
+  ResetSystemLib|Platform/Radxa/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf
   EcLib|Platform/CIX/Sky1/Library/Ite5570EcLib/Ite5570EcRuntimeLib.inf
 
 ################################################################################
@@ -173,14 +174,18 @@
 ################################################################################
 [Components.common]
 # Network stack
-  !include NetworkPkg/Network.dsc.inc
-# This modification is to fix a PXE bug.
-# If the Code Base is upgraded, this modification will cause a compilation error and should be deleted.
-  NetworkPkg/UefiPxeBcDxe/UefiPxeBcDxe.inf {
-    <PcdsFixedAtBuild>
-      gEfiNetworkPkgTokenSpaceGuid.PcdIPv4PXESupport|TRUE
-      gEfiNetworkPkgTokenSpaceGuid.PcdIPv6PXESupport|TRUE
-  }
+  !include NetworkPkg/NetworkComponents.dsc.inc
+
+[LibraryClasses]
+  !include NetworkPkg/NetworkLibs.dsc.inc
+
+[PcdsFixedAtBuild]
+  !include NetworkPkg/NetworkFixedPcds.dsc.inc
+
+[BuildOptions]
+  !include NetworkPkg/NetworkBuildOptions.dsc.inc
+
+[Components.common]
 
   Platform/CIX/Sky1/PrePi/PeiUniCore.inf
 !if $(SHELL_EMBEDDED_ENABLE) == TRUE
@@ -209,7 +214,7 @@
 !if $(ACPI_ENABLE) == TRUE
   Platform/Radxa/Orion/O6/Drivers/AcpiPlatfomTables/AcpiPlatfomTables.inf {
     <BuildOptions>
-      *_*_*_ASLCC_FLAGS = -I$(WORKSPACE)/$(OUTPUT_DIRECTORY)
+      *_*_*_ASLPP_FLAGS = -I$(WORKSPACE)/$(OUTPUT_DIRECTORY) -I$(WORKSPACE)/edk2-platforms/Platform/Radxa/Orion/O6/Drivers
   }
   Platform/Radxa/Drivers/AcpiPlatformDxe/AcpiPlatformDxe.inf
 !endif
@@ -284,7 +289,7 @@
 
 !if $(LINUX_ACPI_CONFIG_OVERRIDE) == TRUE
   GCC:*_*_*_ASLPP_FLAGS           = -DLINUX_ACPI_CONFIG_OVERRIDE
-  GCC:*_*_*_ASLPP_FLAGS           = -I$(WORKSPACE)/../edk2-platforms/Platform/Radxa/Orion/O6/Drivers
+  GCC:*_*_*_ASLPP_FLAGS           = -I$(WORKSPACE)/edk2-platforms/Platform/Radxa/Orion/O6/Drivers
 !endif
 
 !if $(STMM_SUPPORT) == TRUE

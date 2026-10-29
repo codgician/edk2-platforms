@@ -240,7 +240,6 @@ PlatformFlashSystemFirmware  (
   FMP_PAYLOAD_HEADER  *FmpPayloadHeader;
   UINT32              SystemFirmwareSize = 0;
   UINT8               *SystemFirmware = NULL;
-  UINT32              Version, LowestSupportedVersion;
 
   FmpHeaderSize    = sizeof (FMP_PAYLOAD_HEADER);
   FmpPayloadHeader = (FMP_PAYLOAD_HEADER *)(pImage);
@@ -250,8 +249,6 @@ PlatformFlashSystemFirmware  (
     return EFI_INVALID_PARAMETER;
   }
 
-  Version                = FmpPayloadHeader->FwVersion;
-  LowestSupportedVersion = FmpPayloadHeader->LowestSupportedVersion;
   SystemFirmwareSize     = Length - FmpHeaderSize;
   SystemFirmware         = pImage + FmpHeaderSize;
 

@@ -35,7 +35,7 @@
   topology information
 */
 GET_OBJECT_LIST (
-  EObjNameSpaceCix,
+  EObjNameSpaceOem,
   ECixObjCpuTopoInfo,
   CM_CIX_CPU_TOPO_INFO
   );
@@ -327,6 +327,7 @@ error_handler:
 **/
 STATIC
 EFI_STATUS
+EFIAPI
 FreePpttTableResources (
   IN      CONST ACPI_TABLE_GENERATOR                  *CONST  This,
   IN      CONST CM_STD_OBJ_ACPI_TABLE_INFO            *CONST  AcpiTableInfo,

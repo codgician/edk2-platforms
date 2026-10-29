@@ -173,7 +173,7 @@ typedef struct PlatformRepositoryInfo {
   CM_ARM_GIC_ITS_INFO                      GicItsInfo;
 
   /// CPU _CPC information
-  CM_ARM_CPC_INFO                          CpuCpcInfo[PLAT_CPU_COUNT];
+  CM_ARCH_COMMON_CPC_INFO                  CpuCpcInfo[PLAT_CPU_COUNT];
 
   /// Mapping table of CPU UID to core number
   UINTN                                    CpuUidtoCoreNumberMap[PLAT_CPU_COUNT];

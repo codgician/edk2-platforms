@@ -685,8 +685,8 @@ FarmFunctionControl (
       NetworkStack.Enable   = FixedPcdGet8 (PcdNetworkStackSupport);
       NetworkStack.Ipv4Pxe  = FixedPcdGet8 (PcdIPv4PXESupport);
       NetworkStack.Ipv6Pxe  = FixedPcdGet8 (PcdIPv6PXESupport);
-      NetworkStack.Ipv4Http = FixedPcdGet8 (PcdIPv4HttpSupport);
-      NetworkStack.Ipv6Http = FixedPcdGet8 (PcdIPv6HttpSupport);
+      NetworkStack.Ipv4Http = FixedPcdGetBool (PcdIPv4HttpSupport);
+      NetworkStack.Ipv6Http = FixedPcdGetBool (PcdIPv6HttpSupport);
       Status                = gRT->SetVariable (
                                      NETWORK_STACK_VAR,
                                      &gEfiNetworkStackSetupGuid,

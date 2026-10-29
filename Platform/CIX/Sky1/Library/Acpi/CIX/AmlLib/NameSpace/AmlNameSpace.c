@@ -1235,7 +1235,7 @@ EFI_STATUS
 EFIAPI
 AmlBuildAbsoluteAmlPath (
   IN      AML_NODE_HEADER  *ReferenceNode,
-  IN      CHAR8            *AslPath,
+  IN      CONST CHAR8      *AslPath,
   IN  OUT AML_STREAM       *RawAmlAbsSearchPathBStream
   )
 {
@@ -1374,7 +1374,7 @@ EFI_STATUS
 EFIAPI
 AmlFindNode (
   IN  AML_NODE_HEADER  *ReferenceNode,
-  IN  CHAR8            *AslPath,
+  IN  CONST CHAR8      *AslPath,
   OUT AML_NODE_HEADER  **OutNode
   )
 {

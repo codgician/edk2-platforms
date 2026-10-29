@@ -12,7 +12,7 @@
 #include <AcpiTableGenerator.h>
 
 #include <AmlCoreInterface.h>
-#include <AmlCpcInfo.h>
+#include <AcpiObjects.h>
 #include <AmlEncoding/Aml.h>
 #include <Api/AmlApiHelper.h>
 #include <CodeGen/AmlResourceDataCodeGen.h>
@@ -142,7 +142,7 @@ STATIC
 EFI_STATUS
 EFIAPI
 AmlCodeGenString (
-  IN  CHAR8            *String,
+  IN  CONST CHAR8      *String,
   OUT AML_OBJECT_NODE  **NewObjectNode
   )
 {
@@ -667,7 +667,7 @@ EFI_STATUS
 EFIAPI
 AmlCodeGenNameString (
   IN  CONST CHAR8            *NameString,
-  IN        CHAR8            *String,
+  IN  CONST CHAR8            *String,
   IN        AML_NODE_HEADER  *ParentNode      OPTIONAL,
   OUT       AML_OBJECT_NODE  **NewObjectNode   OPTIONAL
   )
@@ -1369,7 +1369,6 @@ error_handler1:
   @retval EFI_INVALID_PARAMETER   Invalid parameter.
   @retval EFI_OUT_OF_RESOURCES    Failed to allocate memory.
 **/
-STATIC
 EFI_STATUS
 EFIAPI
 AmlCodeGenMethod (
@@ -2178,7 +2177,7 @@ AmlAddLpiState (
   IN  UINT64                                  Integer                     OPTIONAL,
   IN  EFI_ACPI_6_3_GENERIC_ADDRESS_STRUCTURE  *ResidencyCounterRegister    OPTIONAL,
   IN  EFI_ACPI_6_3_GENERIC_ADDRESS_STRUCTURE  *UsageCounterRegister        OPTIONAL,
-  IN  CHAR8                                   *StateName                   OPTIONAL,
+  IN  CONST CHAR8                             *StateName                   OPTIONAL,
   IN  AML_OBJECT_NODE_HANDLE                  LpiNode
   )
 {
@@ -2767,7 +2766,7 @@ error_handler:
 EFI_STATUS
 EFIAPI
 AmlAddNameIntegerPackage (
-  IN CHAR8                   *Name,
+  IN CONST CHAR8             *Name,
   IN UINT64                  Value,
   IN AML_OBJECT_NODE_HANDLE  PackageNode
   )
@@ -3366,7 +3365,7 @@ error_handler:
 **/
 EFI_STATUS
 EFIAPI
-AmlCreatePsdNode (
+CixAmlCreatePsdNode (
   IN  UINT16                  NumEntries,
   IN  UINT8                   Revision,
   IN  UINT32                  Domain,

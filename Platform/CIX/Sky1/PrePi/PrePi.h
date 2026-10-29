@@ -24,6 +24,11 @@
 
 extern UINT64  mSystemMemoryEnd;
 
+UINTN
+ArmPlatformIsPrimaryCore (
+  IN UINTN  MpId
+  );
+
 RETURN_STATUS
 EFIAPI
 TimerConstructor (

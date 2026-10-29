@@ -28,7 +28,7 @@
 #include <CIXAmlLib.h>
 
 CM_CIX_LPI_MAP_INFO  LpiMapInfo              = PLAT_LPI_MAP_INFO;
-AML_PSD_INFO         PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
+CIX_AML_PSD_INFO     PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
 
 /** This macro expands to a function that retrieves the GIC
     CPU interface Information from the Configuration Manager.
@@ -44,9 +44,9 @@ GET_OBJECT_LIST (
   information from the Configuration Manager.
 */
 GET_OBJECT_LIST (
-  EObjNameSpaceArm,
-  EArmObjCpcInfo,
-  CM_ARM_CPC_INFO
+  EObjNameSpaceArchCommon,
+  EArchCommonObjCpcInfo,
+  CM_ARCH_COMMON_CPC_INFO
   );
 
 /**
@@ -54,7 +54,7 @@ GET_OBJECT_LIST (
   topology information
 */
 GET_OBJECT_LIST (
-  EObjNameSpaceCix,
+  EObjNameSpaceOem,
   ECixObjCpuTopoInfo,
   CM_CIX_CPU_TOPO_INFO
   );
@@ -175,7 +175,7 @@ WriteCpuAslName (
       })
   }
 
-  @param [in]  PsdInfo                AML_PSD_INFO object
+  @param [in]  PsdInfo                CIX_AML_PSD_INFO object
                                       describing the P-State Dependency.
   @param [in]  Node                   CPU Node to which the _CPC node is
                                       attached.
@@ -188,7 +188,7 @@ STATIC
 EFI_STATUS
 EFIAPI
 CreateAmlPsdNode (
-  IN  AML_PSD_INFO            PsdInfo,
+  IN  CIX_AML_PSD_INFO        PsdInfo,
   IN  AML_OBJECT_NODE_HANDLE  *Node
   )
 {
@@ -196,7 +196,7 @@ CreateAmlPsdNode (
 
   ASSERT (Node != NULL);
 
-  Status = AmlCreatePsdNode (
+  Status = CixAmlCreatePsdNode (
              PsdInfo.NumEntries,
              PsdInfo.Revision,
              PsdInfo.Domain,
@@ -274,13 +274,13 @@ CreateAmlCpcNode (
   )
 {
   EFI_STATUS       Status;
-  CM_ARM_CPC_INFO  *CpcInfo;
+  CM_ARCH_COMMON_CPC_INFO  *CpcInfo;
   UINT32           CpcInfoCount;
 
   ASSERT (CfgMgrProtocol != NULL);
   ASSERT (Node != NULL);
 
-  Status = GetEArmObjCpcInfo (
+  Status = GetEArchCommonObjCpcInfo (
              CfgMgrProtocol,
              CM_NULL_TOKEN,
              &CpcInfo,
@@ -934,6 +934,7 @@ exit_handler:
 **/
 STATIC
 EFI_STATUS
+EFIAPI
 FreeSsdtCpuTopologyTableResources (
   IN      CONST ACPI_TABLE_GENERATOR                  *CONST  This,
   IN      CONST CM_STD_OBJ_ACPI_TABLE_INFO            *CONST  AcpiTableInfo,

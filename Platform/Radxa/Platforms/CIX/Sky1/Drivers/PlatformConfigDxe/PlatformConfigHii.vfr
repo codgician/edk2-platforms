@@ -147,7 +147,7 @@ endif;
       oneof varid   = NetworkStackVar.Ipv4Http,
         prompt      = STRING_TOKEN(STR_IPV4_HTTP_BOOT_PROMPT),
         help        = STRING_TOKEN(STR_IPV4_HTTP_BOOT_PROMPT_HELP),
-        default     = FixedPcdGet8 (PcdIPv4HttpSupport),
+        default     = FixedPcdGetBool (PcdIPv4HttpSupport),
         option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
         option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
       endoneof;
@@ -155,7 +155,7 @@ endif;
       oneof varid   = NetworkStackVar.Ipv6Http,
         prompt      = STRING_TOKEN(STR_IPV6_HTTP_BOOT_PROMPT),
         help        = STRING_TOKEN(STR_IPV6_HTTP_BOOT_PROMPT_HELP),
-        default     = FixedPcdGet8 (PcdIPv6HttpSupport),
+        default     = FixedPcdGetBool (PcdIPv6HttpSupport),
         option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
         option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
       endoneof;

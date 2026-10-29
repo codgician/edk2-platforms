@@ -6,11 +6,14 @@
 //
 //
 
-#include <AsmMacroIoLibV8.h>
+#include <AsmMacroLib.h>
 
 ASM_FUNC(_ModuleEntryPoint)
   // Do early platform specific actions
   bl    ASM_PFX(ArmPlatformPeiBootAction)
+
+  msr   tpidr_el0, xzr
+  bl    ASM_PFX(ArmEnableVFP)
 
   // Get ID of this CPU in multi-core system
   bl    ASM_PFX(ArmReadMpidr)

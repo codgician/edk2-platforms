@@ -23,10 +23,11 @@
 [Packages]
   MdePkg/MdePkg.dec
   ArmPkg/ArmPkg.dec
+  Silicon/CIX/Sky1/CixPkg.dec
 
 [LibraryClasses]
   ArmLib
   BaseLib
 
 [Pcd]
-  gArmTokenSpaceGuid.PcdArmArchTimerFreqInHz
+  gCixTokenSpaceGuid.PcdCixArchTimerFreqInHz

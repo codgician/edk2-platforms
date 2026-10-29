@@ -53,7 +53,6 @@ CheckPlatformVarUpdate (
   UINT32                    FwHeaderOffset;
   UINT32                    MemCfgOffset;
   UINT32                    MemCfgLength;
-  MEM_QUICK_CONFIG*         MemQuickHeader;
 
   *Update = FALSE;
 
@@ -143,12 +142,6 @@ CheckPlatformVarUpdate (
     goto Done;
   }
 
-  MemQuickHeader = (MEM_QUICK_CONFIG *)pImageBuff;
-
-  // if (pRadxaSetupVar->CpuFMax != MemQuickHeader->cpufmax) {
-  //    pRadxaSetupVar->CpuFMax = MemQuickHeader->cpufmax;
-  //    *Update = TRUE;
-  // }
 
 Done:
   if (pImageBuff) {

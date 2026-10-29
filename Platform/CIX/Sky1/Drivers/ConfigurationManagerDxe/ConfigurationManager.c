@@ -152,7 +152,7 @@ GetCpcGranularity (
   EFI_STATUS                          Status;
   SCMI_PERFORMANCE_PROTOCOL           *ScmiPerfProtocol = NULL;
   UINT32                              DomainId;
-  AML_PSD_INFO                        PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
+  CIX_AML_PSD_INFO                    PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
   SCMI_PERFORMANCE_DOMAIN_ATTRIBUTES  DomainAttribute;
 
   if (CpuID >= PLAT_CPU_COUNT) {
@@ -197,7 +197,7 @@ GetCpuPerfData (
   UINT32                  DomainId;
   UINT32                  NumLevels;
   SCMI_PERFORMANCE_LEVEL  *LevelArra;
-  AML_PSD_INFO            PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
+  CIX_AML_PSD_INFO        PsdInfo[PLAT_CPU_COUNT] = PLAT_PSD_INFO;
 
   if (CpuID >= PLAT_CPU_COUNT) {
     DEBUG ((DEBUG_ERROR, "Cpuid is over the max range, max cpuid = %d, current cpu id = %d\n", PLAT_CPU_COUNT - 1, CpuID));
@@ -251,7 +251,7 @@ InitializeCmArmCpcInfo (
   )
 {
   EFI_STATUS       Status;
-  CM_ARM_CPC_INFO  *CpuCpcInfo;
+  CM_ARCH_COMMON_CPC_INFO  *CpuCpcInfo;
   UINT32           HighestPerf;
   UINT32           NominalPerf;
   UINT32           LowestNonlinearPerf;
@@ -428,7 +428,7 @@ InitializePlatformRepository (
   EFI_EVENT                          Event  = NULL;
   CIX_CONFIG_PARAMS_MANAGE_PROTOCOL  *ConfigManage;
   CONFIG_PARAMS_DATA_BLOCK           *ConfigData                   = NULL;
-  CM_ARM_CPC_INFO                    CpuCpcInfoPcc[PLAT_CPU_COUNT] = PLAT_CPC_INFO_PCC;
+  CM_ARCH_COMMON_CPC_INFO            CpuCpcInfoPcc[PLAT_CPU_COUNT] = PLAT_CPC_INFO_PCC;
 
   CpuTopology  *CpuTopo = NULL;
 
@@ -761,20 +761,6 @@ GetArmNameSpaceObject (
                  );
       break;
 
-    case EArmObjCpcInfo:
-      if (!CppcEnable) {
-        return EFI_NOT_FOUND;
-      }
-
-      Status = HandleCmObject (
-                 CmObjectId,
-                 &PlatformRepo->CpuCpcInfo,
-                 PLAT_CPU_COUNT*sizeof (CM_ARM_CPC_INFO),
-                 PLAT_CPU_COUNT,
-                 CmObject
-                 );
-      break;
-
     default:
     {
       Status = EFI_NOT_FOUND;
@@ -793,7 +779,7 @@ GetArmNameSpaceObject (
   return Status;
 }
 
-/** Return an OEM namespace object.
+/** Return an architecture-common namespace object.
 
   @param [in]      This        Pointer to the Configuration Manager Protocol.
   @param [in]      CmObjectId  The Configuration Manager Object ID.
@@ -808,7 +794,7 @@ GetArmNameSpaceObject (
 **/
 EFI_STATUS
 EFIAPI
-GetOemNameSpaceObject (
+GetArchCommonNameSpaceObject (
   IN  CONST EDKII_CONFIGURATION_MANAGER_PROTOCOL  *CONST  This,
   IN  CONST CM_OBJECT_ID                                  CmObjectId,
   IN  CONST CM_OBJECT_TOKEN                               Token OPTIONAL,
@@ -816,6 +802,7 @@ GetOemNameSpaceObject (
   )
 {
   EFI_STATUS  Status;
+  SKY1_PLATFORM_REPOSITORY_INFO  *PlatformRepo;
 
   Status = EFI_SUCCESS;
   if ((This == NULL) || (CmObject == NULL)) {
@@ -824,7 +811,23 @@ GetOemNameSpaceObject (
     return EFI_INVALID_PARAMETER;
   }
 
+  PlatformRepo = This->PlatRepoInfo;
+
   switch (GET_CM_OBJECT_ID (CmObjectId)) {
+    case EArchCommonObjCpcInfo:
+      if (!CppcEnable) {
+        return EFI_NOT_FOUND;
+      }
+
+      Status = HandleCmObject (
+                 CmObjectId,
+                 PlatformRepo->CpuCpcInfo,
+                 sizeof (PlatformRepo->CpuCpcInfo),
+                 PLAT_CPU_COUNT,
+                 CmObject
+                 );
+      break;
+
     default:
     {
       Status = EFI_NOT_FOUND;
@@ -882,11 +885,11 @@ Sky1PlatformGetObject (
     case EObjNameSpaceArm:
       Status = GetArmNameSpaceObject (This, CmObjectId, Token, CmObject);
       break;
-    case EObjNameSpaceCix:
+    case EObjNameSpaceOem:
       Status = GetCixNameSpaceObject (This, CmObjectId, Token, CmObject);
       break;
-    case EObjNameSpaceOem:
-      Status = GetOemNameSpaceObject (This, CmObjectId, Token, CmObject);
+    case EObjNameSpaceArchCommon:
+      Status = GetArchCommonNameSpaceObject (This, CmObjectId, Token, CmObject);
       break;
     default:
     {

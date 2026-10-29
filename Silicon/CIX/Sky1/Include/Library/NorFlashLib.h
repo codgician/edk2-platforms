@@ -17,6 +17,11 @@
 #include <Protocol/FirmwareVolumeBlock.h>
 #include "MemoryMap.h"
 
+EFI_STATUS
+NorFlashPlatformInitialization (
+  VOID
+  );
+
 #define XSPI_FLASH_DMA_MMIO_ADDR     XSPI_DMA_MMIO_BASE
 #define XSPI_FLASH_DIRECT_MMIO_ADDR  XSPI_MMIO_BASE
 #define XSPI_CONTROLLER_BASE         XSPI_BASE

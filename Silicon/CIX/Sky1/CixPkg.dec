@@ -82,6 +82,8 @@
 [PcdsFixedAtBuild.common]
   gCixTokenSpaceGuid.PcdPostCodeApAddr|0x05030F00|UINT32|0x01
   gCixTokenSpaceGuid.PcdPostCodeSeAddr|0x05040108|UINT32|0x02
+  gCixTokenSpaceGuid.PcdCixArchTimerFreqInHz|0|UINT32|0x03
+  gCixTokenSpaceGuid.PcdCPUCoreSecondaryStackSize|0x1000|UINT32|0x04
 
   gCixTokenSpaceGuid.PcdCixMtlDoorBell|0x06590080|UINT64|0x00000701
   gCixTokenSpaceGuid.PcdCixMtlMailBoxBase|0x06590000|UINT64|0x00000702

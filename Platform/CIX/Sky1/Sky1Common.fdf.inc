@@ -116,7 +116,7 @@
   INF Platform/CIX/Sky1/Drivers/SecureBootDxe/SecureBootDxe.inf
 !endif
   INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
-  INF EmbeddedPkg/ResetRuntimeDxe/ResetRuntimeDxe.inf
+  INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   INF EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
   INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
@@ -139,7 +139,7 @@
 !if $(DIAGS_KERNEL_ENABLE) == TRUE
   INF Edk2OverridePkg/ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
 !else
-  INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
 !endif
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 !if $(POWER_BUTTON_ENABLE) == TRUE

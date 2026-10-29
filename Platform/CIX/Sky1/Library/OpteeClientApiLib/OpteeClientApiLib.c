@@ -78,7 +78,8 @@ OpteeShmInit (
   Status = ArmSetMemoryAttributes (
              mShmBase,
              (UINT64)mShmPages * SHM_PAGE_SIZE,
-             (Args.Arg3 & OPTEE_SMC_SHM_CACHED) ? EFI_MEMORY_WB : EFI_MEMORY_UC
+             (Args.Arg3 & OPTEE_SMC_SHM_CACHED) ? EFI_MEMORY_WB : EFI_MEMORY_UC,
+             0
              );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a: mapping shared memory failed: %r\n", __func__, Status));

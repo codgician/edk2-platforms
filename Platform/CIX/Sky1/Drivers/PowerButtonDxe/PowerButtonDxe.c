@@ -12,7 +12,7 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/MemoryAllocationLib.h>
-#include <Library/EfiResetSystemLib.h>
+#include <Library/ResetSystemLib.h>
 #include <Library/EcLib.h>
 #include <Library/CixPostCodeLib.h>
 #include <Protocol/PowerButtonProtocol.h>
@@ -37,7 +37,7 @@ PowerButtonCallback (
   if (!EFI_ERROR (Status)) {
     if ( AcpiIntEvent.Event & POWER_BUTTON_VALID) {
       DEBUG ((DEBUG_VERBOSE, "\n[PBTN]pressed.\n"));
-      LibResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+      ResetShutdown ();
     }
   }
 }

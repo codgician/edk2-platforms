@@ -46,7 +46,6 @@ CixFirmwareUpdateInitialize (
   UINT32  dwflag
   )
 {
-  UINT16           ReturnCode;
   UINT32           HeaderSize, EntriesLength;
   FIRMWARE_HEADER  *pCixNewImageFwHeader;
   FIRMWARE_HEADER  *pCixOnboardFwHeader;
@@ -75,7 +74,7 @@ CixFirmwareUpdateInitialize (
       IsOtaPackage    = FALSE;
       pFirmwareHeader = pNewFirmwareImage + FIRMWARE_HEADER_OFFSET;
     } else {
-      ReturnCode = FIRMWARE_RET_ERR_HEADER;
+      return FIRMWARE_RET_ERR_HEADER;
     }
   }
 
@@ -134,7 +133,8 @@ CixFirmwareUpdateInitialize (
   CixFlashReadWrapper (FIRMWARE_HEADER_OFFSET, FlashBlockSize, pBuff);
 
   if (((FIRMWARE_HEADER *)pBuff)->Signature != FIRMWARE_HEADER_SIGNATURE) {
-    ReturnCode = FIRMWARE_RET_ERR_HEADER;
+    FreePool (pBuff);
+    return FIRMWARE_RET_ERR_HEADER;
   }
 
   HeaderSize          = sizeof (FIRMWARE_HEADER) + (((FIRMWARE_HEADER *)pBuff)->EntryCount - 1) * sizeof (FIRMWARE_ENTRY);
@@ -151,7 +151,7 @@ CixFirmwareUpdateOnboardHeaderParse (
   )
 {
   UINT16           ReturnCode;
-  UINT32           HeaderSize, EntriesLength;
+  UINT32           HeaderSize;
   FIRMWARE_HEADER  *pCixOnboardFwHeader;
   // UINT8            *pFirmwareHeader;
   FIRMWARE_ENTRY  *pEntry;
@@ -202,7 +202,6 @@ CixFirmwareUpdateOnboardHeaderParse (
   // FreePool (pBuff);
 
   pEntryInfo    = pFwPrivateData->ImageFwEntryInfo;
-  EntriesLength = HeaderSize;
   for (Index = 0; Index < pCixOnboardFwHeader->EntryCount; Index++) {
     pEntry = &(pCixOnboardFwHeader->EntryNode[Index]);
 
@@ -329,7 +328,6 @@ CixFirmwareEntryUpdateWrapper (
   UINT16                   ReturnCode;
   UINT8                    *pFirmwareEntryImage;
   UINT32                   EntryImageOffset, EntryImageSize;
-  UINT32                   EntryOnboardLength;
   UINT32                   EntryOnboardAddress;
   UINT32                   Index;
   CIX_FIRMWARE_ENTRY_INFO  *pEntryInfo;
@@ -354,7 +352,6 @@ CixFirmwareEntryUpdateWrapper (
     return (ReturnCode | FIRMWARE_RET_ERR_INPUT);
   }
 
-  EntryOnboardLength  = pEntryOnboard->Length;
   EntryOnboardAddress = pEntryOnboard->Base;
   pFirmwareEntryImage = AllocateZeroPool (EntryImageSize);
   CopyMem (pFirmwareEntryImage, pNewFirmwareImage + EntryImageOffset, EntryImageSize);
@@ -516,7 +513,6 @@ CixFirmwarePackageProgram (
   FIRMWARE_ENTRY           *pEntryOnboard = NULL;
   UINT32                   ImageEntryIndex, OboardEntryIndex;
   UINT32                   dwflag;
-  FIRMWARE_PROGRAM_STATUS  *pFwProgSts;
   BOOLEAN                  EntryFound = FALSE;
 
   if ((pNewFirmwareImage == NULL) || (ImageSize == 0)) {
@@ -526,7 +522,6 @@ CixFirmwarePackageProgram (
 
   FimwareUpdateCallBack = CallBackFunc;
   ProgressFunc = CallBackFunc;
-  pFwProgSts            = &FwProgStatus;
 
   ReturnCode = CixFirmwareUpdateInitialize (pNewFirmwareImage, ImageSize, dwflag);
   if (ReturnCode != FIRMWARE_RET_SUCCESS) {
@@ -830,12 +825,10 @@ CixFirmwareSingleProgram (
   FIRMWARE_ENTRY           *pEntryUpdate  = NULL;
   FIRMWARE_ENTRY           *pEntryOnboard = NULL;
   UINT32                   Index;
-  FIRMWARE_PROGRAM_STATUS  *pFwProgSts;
   UINT32                   dwflag;
   BOOLEAN                  EntryFound = FALSE;
 
   FimwareUpdateCallBack = CallBackFunc;
-  pFwProgSts            = &FwProgStatus;
 
   if ((pNewFirmwareImage == NULL) || (ImageSize == 0) ||
       ((Type != FIRMWARE_TYPE_BootLoader_1) &&
@@ -987,7 +980,6 @@ CixFirmwareRawEntryUpdate (
   UINT16                   ReturnCode;
   UINT32                   Index;
   CIX_FIRMWARE_ENTRY_INFO  *pEntryInfo;
-  UINT32                   EntryOnboardSize;
   UINT32                   EntryOnboardAddress;
 
   DEBUG ((DEBUG_ERROR, "type:%d,ImageSize:0x%x\n", Type, ImageSize));
@@ -1022,7 +1014,6 @@ CixFirmwareRawEntryUpdate (
   for (Index = 0; Index < pFwPrivateData->EntryCount; Index++) {
     if (Type == pEntryInfo->Type) {
       EntryOnboardAddress = pEntryInfo->EntryImageOffset;
-      EntryOnboardSize    = pEntryInfo->EntryImageSize;
       // Found            = TRUE;
       break;
     }

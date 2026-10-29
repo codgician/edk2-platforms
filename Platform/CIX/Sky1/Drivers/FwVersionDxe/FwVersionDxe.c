@@ -269,16 +269,13 @@ SetUefiVersion (
   void    *FwVerAddrUefi;
   UINT32  SmemSize;
   CHAR16  *FwVerUefiBuff;
-  UINTN   FwVerUefiSize;
 
   FwVerUefiBuff = (CHAR16 *)PcdGetPtr (PcdFirmwareVersionString);
-  FwVerUefiSize = StrLen (FwVerUefiBuff) * 2;
 
   FwVerAddrUefi = SmemGetAddr (SMEM_VER_UEFI, &SmemSize);
   ZeroMem (FwVerAddrUefi, SmemSize);
 
   UnicodeToAscii (FwVerUefiBuff, StrLen (FwVerUefiBuff), (CHAR8 *)FwVerAddrUefi);
-  // CopyMem (FwVerAddrUefi, FwVerUefiBuff, FwVerUefiSize);
 
   return;
 }

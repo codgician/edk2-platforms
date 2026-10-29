@@ -22,6 +22,7 @@
   MdePkg/MdePkg.dec
   EmbeddedPkg/EmbeddedPkg.dec
   ArmPkg/ArmPkg.dec
+  Silicon/CIX/Sky1/CixPkg.dec
 
 [LibraryClasses]
   #DebugLib
@@ -30,4 +31,4 @@
   ArmGenericTimerCounterLib
 
 [Pcd]
-  gArmTokenSpaceGuid.PcdArmArchTimerFreqInHz
+  gCixTokenSpaceGuid.PcdCixArchTimerFreqInHz

@@ -17,7 +17,6 @@
 #include <Library/PcdLib.h>
 #include <Library/HobLib.h>
 #include <Library/DxeServicesTableLib.h>
-#include <Library/NorFlashPlatformLib.h>
 #include <Library/UefiRuntimeLib.h>
 #include <Library/CixPostCodeLib.h>
 #include "NorFlashLib.h"

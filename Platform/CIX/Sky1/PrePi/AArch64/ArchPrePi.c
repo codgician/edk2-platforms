@@ -9,7 +9,7 @@
 
 #include "PrePi.h"
 
-#include <Chipset/AArch64.h>
+#include <AArch64.h>
 
 VOID
 ArchInitialize (

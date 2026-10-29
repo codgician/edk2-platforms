@@ -170,8 +170,6 @@ SeConfigUpdateDxeEntryPoint (
   EFI_EVENT       Event;
   EFI_HII_HANDLE  HiiHandle;
   EFI_HANDLE      DriverHandle;
-  UINT32          TotalMemorySize;
-  CIX_SOC_INFO_PROTOCOL  *pCixSocInfoProtocol = NULL;
 
   // Init SE config setup variable
   Status = SeConfigSetupVariableInit ();
@@ -179,14 +177,6 @@ SeConfigUpdateDxeEntryPoint (
     DEBUG ((DEBUG_INFO, "%a: SeConfigSetupVariableInit Status - %r\n", __FUNCTION__, Status));
     return Status;
   }
-
-  Status = gBS->LocateProtocol (&gCixSocInfoProtocolGuid, NULL, (VOID **)&pCixSocInfoProtocol);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "Locate Protocol failed for %g\n", &gCixSocInfoProtocolGuid));
-    return Status;
-  }
-
-  TotalMemorySize = pCixSocInfoProtocol->MemInfo->TotalSize/1024;
 
   Status = gBS->CreateEventEx (
                   EVT_NOTIFY_SIGNAL,

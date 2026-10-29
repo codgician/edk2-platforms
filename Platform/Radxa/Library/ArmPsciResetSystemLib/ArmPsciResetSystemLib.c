@@ -18,7 +18,8 @@
 
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
-#include <Library/EfiResetSystemLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/ResetSystemLib.h>
 #include <Library/ArmSmcLib.h>
 #include <Library/EcLib.h>
 #include <Library/GpioLib.h>
@@ -36,18 +37,20 @@
                                 Unicode string, optionally followed by additional binary data.
 
 **/
-EFI_STATUS
+VOID
 EFIAPI
-LibResetSystem (
+ResetSystem (
   IN EFI_RESET_TYPE  ResetType,
   IN EFI_STATUS      ResetStatus,
   IN UINTN           DataSize,
-  IN CHAR16          *ResetData OPTIONAL
+  IN VOID            *ResetData OPTIONAL
   )
 {
   ARM_SMC_ARGS              ArmSmcArgs;
   EC_PARAMS_FORCE_EC_RESET  Params;
   CHAR16 *                  SystemProductName;
+
+  ZeroMem (&ArmSmcArgs, sizeof (ArmSmcArgs));
 
   SystemProductName = (CHAR16 *)FixedPcdGetPtr (PcdSystemProductName);
 
@@ -104,7 +107,7 @@ LibResetSystem (
       break;
     default:
       ASSERT (FALSE);
-      return EFI_UNSUPPORTED;
+      return;
   }
 
   ArmCallSmc (&ArmSmcArgs);
@@ -112,24 +115,41 @@ LibResetSystem (
   // We should never be here
   DEBUG ((DEBUG_ERROR, "%a: PSCI Reset failed\n", __FUNCTION__));
   CpuDeadLoop ();
-  return EFI_UNSUPPORTED;
 }
 
-/**
-  Initialize any infrastructure required for LibResetSystem () to function.
-
-  @param  ImageHandle   The firmware allocated handle for the EFI image.
-  @param  SystemTable   A pointer to the EFI System Table.
-
-  @retval EFI_SUCCESS   The constructor always returns EFI_SUCCESS.
-
-**/
-EFI_STATUS
+VOID
 EFIAPI
-LibInitializeResetSystem (
-  IN EFI_HANDLE        ImageHandle,
-  IN EFI_SYSTEM_TABLE  *SystemTable
+ResetCold (
+  VOID
   )
 {
-  return EFI_SUCCESS;
+  ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+}
+
+VOID
+EFIAPI
+ResetWarm (
+  VOID
+  )
+{
+  ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
+}
+
+VOID
+EFIAPI
+ResetShutdown (
+  VOID
+  )
+{
+  ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+}
+
+VOID
+EFIAPI
+ResetPlatformSpecific (
+  IN UINTN  DataSize,
+  IN VOID   *ResetData
+  )
+{
+  ResetSystem (EfiResetPlatformSpecific, EFI_SUCCESS, DataSize, ResetData);
 }
