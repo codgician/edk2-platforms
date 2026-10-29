@@ -50,10 +50,26 @@ BOOLEAN
   IN FTPM_INIT_PROTOCOL *this
   );
 
+/**
+  Send a TPM command to the fTPM TA and receive its response. The protocol
+  producer owns the only OP-TEE client in firmware; consumers must not link
+  their own OpteeClientApiLib instance.
+**/
+typedef
+EFI_STATUS
+(EFIAPI* FTPM_SUBMIT_COMMAND) (
+  IN FTPM_INIT_PROTOCOL *this,
+  IN UINT32             InputSize,
+  IN UINT8              *Input,
+  IN OUT UINT32         *OutputSize,
+  OUT UINT8             *Output
+  );
+
 struct _FTPM_INIT_PROTOCOL {
-    GET_FTPM_SESSION    GetFTPMSession;
-    FTPM_OPEN_SESSION   FTPMOpenSession;
-    FTPM_GET_STATUS     GetFTPMStatus;
+    GET_FTPM_SESSION     GetFTPMSession;
+    FTPM_OPEN_SESSION    FTPMOpenSession;
+    FTPM_GET_STATUS      GetFTPMStatus;
+    FTPM_SUBMIT_COMMAND  SubmitCommand;
 };
 
 extern EFI_GUID  gCixFtpmInitProtocolGuid;

@@ -1,0 +1,46 @@
+## @file
+#  Loads CIX's fTPM trusted application into OP-TEE and produces
+#  FTPM_INIT_PROTOCOL for FTpmDeviceLib.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = FTPMDxe
+  FILE_GUID                      = 0d2b6a8c-3f4e-4b6a-9b1d-6e2f1c8a7d35
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = FtpmDxeEntryPoint
+
+[Sources]
+  FTPMDxe.c
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  Platform/CIX/Sky1/Sky1.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  OpteeClientApiLib
+  PrintLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+  UefiRuntimeServicesTableLib
+
+[Guids]
+  gEfiEventExitBootServicesGuid    ## CONSUMES ## Event
+  gOpteeFtpmTaGuid                 ## CONSUMES
+
+[Protocols]
+  gCixFtpmInitProtocolGuid         ## PRODUCES
+
+[Depex]
+  #
+  # The TA's NV storage lives in variables.
+  #
+  gEfiVariableArchProtocolGuid AND gEfiVariableWriteArchProtocolGuid
