@@ -476,6 +476,10 @@ TEEC_OpenSession (
  * TEEC_CloseSession() - Closes the session which has been opened with the
  * specific trusted application.
  *
+ * This compatibility wrapper discards the result. Firmware needing proof of
+ * closure must use OpteeClientCloseSession(); state is cleared only after a
+ * confirmed secure-world close.
+ *
  * @param session The opened session to close.
  */
 void
@@ -497,7 +501,15 @@ TEEC_CloseSession (
  * @param returnOrigin   A parameter which will hold the error origin if this
  *                       function returns any value other than TEEC_SUCCESS.
  *
- * @return TEEC_SUCCESS  OpenSession successfully opened a new session.
+ * Output/inout buffers are copied only on success, never partially on a
+ * short-buffer result. Success sizes cannot exceed the supplied capacities.
+ * TEEC_ERROR_SHORT_BUFFER reports required sizes without publishing data.
+ * Shared-memory bounce allocations are zeroed before use and scrubbed on
+ * every release. Only the caller's input byte count is sent to OP-TEE.
+ *
+ * @return TEEC_SUCCESS  Command completed with bounded output sizes.
+ * @return TEEC_ERROR_SHORT_BUFFER  Output sizes report required capacities;
+ *                                  output buffer contents are unchanged.
  * @return TEEC_Result   Something failed.
  */
 TEEC_Result

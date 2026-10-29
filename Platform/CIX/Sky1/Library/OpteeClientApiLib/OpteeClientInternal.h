@@ -1,7 +1,7 @@
 /** @file
   OP-TEE 3.x normal-world client internals: SMC/message ABI, shared-memory
-  pool, RPC handlers and the variable-backed REE FS used while firmware acts
-  as tee-supplicant.
+  pool, RPC handlers and the volatile REE FS used while firmware acts as
+  tee-supplicant.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -23,10 +23,12 @@
 #define OPTEE_SMC_CALL_WITH_ARG            OPTEE_SMC_STD_CALL (4)
 #define OPTEE_SMC_GET_SHM_CONFIG           OPTEE_SMC_FAST_CALL (7)
 #define OPTEE_SMC_EXCHANGE_CAPABILITIES    OPTEE_SMC_FAST_CALL (9)
+#define OPTEE_SMC_DISABLE_SHM_CACHE        OPTEE_SMC_FAST_CALL (10)
 
 #define OPTEE_SMC_RETURN_OK               0x0
 #define OPTEE_SMC_RETURN_ETHREAD_LIMIT    0x1
 #define OPTEE_SMC_RETURN_UNKNOWN_FUNCTION 0xFFFFFFFF
+#define OPTEE_SMC_RETURN_ENOTAVAIL         0x7
 #define OPTEE_SMC_RETURN_RPC_PREFIX_MASK  0xFFFF0000
 #define OPTEE_SMC_RETURN_RPC_PREFIX       0xFFFF0000
 #define OPTEE_SMC_RETURN_IS_RPC(Ret) \
@@ -118,6 +120,74 @@ typedef struct {
 #define OPTEE_MSG_ARG_SIZE(NumParams) \
   (sizeof (OPTEE_MSG_ARG) + (NumParams) * sizeof (OPTEE_MSG_PARAM))
 
+#define OPTEE_RPC_MAX_PARAMS  4
+#define OPTEE_RPC_MAX_CALLS   1024
+#define OPTEE_SHM_CLIENT      1
+#define OPTEE_SHM_RPC_ARG     2
+#define OPTEE_SHM_RPC_APPL    3
+#define OPTEE_SHM_RPC_KERNEL  4
+#define OPTEE_SHM_RPC_GLOBAL  5
+
+/**
+  Allocate zeroed, page-backed static SHM with private ownership metadata.
+
+  @param[in] Size       Requested accessible bytes; zero still reserves a page.
+  @param[in] Alignment  Nonzero power of two, no larger than the pool.
+  @param[in] Owner      Client, RPC argument, or RPC payload ownership class.
+  @return Aligned allocation base, or NULL without changing live allocations.
+**/
+VOID *
+OpteeShmAllocOwned (
+  IN UINTN   Size,
+  IN UINTN   Alignment,
+  IN UINT32  Owner
+  );
+
+/**
+  Scrub the entire page run and retire an exact, live owning allocation.
+
+  @param[in] Buffer  Allocation base; interior/foreign/double frees are invalid.
+  @param[in] Owner   Required ownership class.
+  @retval TRUE   The owning allocation was scrubbed and released.
+  @retval FALSE  Nothing was changed.
+**/
+BOOLEAN
+OpteeShmFreeOwned (
+  IN VOID    *Buffer,
+  IN UINT32  Owner
+  );
+
+/**
+  Check an exact allocation base, ownership class and requested byte extent.
+
+  @param[in] Address  Exact base, never a pointer into another allocation.
+  @param[in] Size     Required accessible bytes, excluding page padding.
+  @param[in] Owner    Required ownership class.
+  @retval TRUE  One live allocation satisfies the complete request.
+**/
+BOOLEAN
+OpteeShmIsOwned (
+  IN UINT64  Address,
+  IN UINT64  Size,
+  IN UINT32  Owner
+  );
+
+/**
+  Delay at most 100ms per RPC and 1000ms per standard call.
+
+  @param[in] Milliseconds  Untrusted delay request.
+  @retval FALSE  Budget exceeded; no delay was performed.
+**/
+BOOLEAN
+OpteeRpcDelay (
+  IN UINT64  Milliseconds
+  );
+
+VOID
+OpteeReeFsFinalize (
+  VOID
+  );
+
 //
 // Shared memory pool carved out of OP-TEE's reserved non-secure region.
 // Physical and virtual addresses are identical in UEFI, so the physical
@@ -139,15 +209,18 @@ OpteeShmFree (
   IN VOID  *Buffer
   );
 
+/** Return whether a range lies wholly in one live requested allocation. */
 BOOLEAN
 OpteeShmContains (
   IN UINT64  Address,
   IN UINT64  Size
   );
 
-//
-// Resolve a memref parameter of an RPC argument to a pointer and size.
-//
+/**
+  Resolve a static contiguous RPC payload; registered/dynamic memory is absent.
+  A non-NULL memref must carry the base cookie of its own live RPC payload.
+  NULL requires zero size and zero cookie (LOAD_TA size query).
+**/
 BOOLEAN
 OpteeMsgParamToBuffer (
   IN  OPTEE_MSG_PARAM  *Param,
@@ -161,15 +234,18 @@ OpteeMsgParamSetSize (
   IN     UINTN            Size
   );
 
-//
-// Run a standard call until OP-TEE returns from every RPC.
-//
+/**
+  Run one standard call, servicing at most OPTEE_RPC_MAX_CALLS RPCs.
+  Transport/protocol failure scrubs RPC allocations and permanently poisons
+  this client instance; it must never resume a suspended thread with reused SHM.
+**/
 TEEC_Result
 OpteeCallWithArg (
   IN OPTEE_MSG_ARG  *Arg
   );
 
-VOID
+/** Return FALSE when no safe wire response exists; the caller must abort. */
+BOOLEAN
 OpteeRpcHandle (
   IN OUT ARM_SMC_ARGS  *Args
   );

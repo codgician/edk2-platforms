@@ -5,6 +5,8 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
+#include <Uefi.h>
+#include <Pi/PiFirmwareFile.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -15,17 +17,9 @@
 
 #include "OpteeClientInternal.h"
 
-STATIC
-BOOLEAN
-IsValueParam (
-  IN OPTEE_MSG_PARAM  *Param
-  )
-{
-  UINT64  Type;
-
-  Type = Param->Attr & OPTEE_MSG_ATTR_TYPE_MASK;
-  return Type >= OPTEE_MSG_ATTR_TYPE_VALUE_INPUT && Type <= OPTEE_MSG_ATTR_TYPE_VALUE_INOUT;
-}
+STATIC CONST EFI_GUID  mFtpmTaGuid = {
+  0xbc50d971, 0xd4c9, 0x42c4, { 0x82, 0xcb, 0x34, 0x3f, 0xb7, 0xf3, 0x78, 0x96 }
+};
 
 /**
   [in]  value[0].a-b  TA UUID as octets
@@ -44,13 +38,18 @@ RpcLoadTa (
   UINTN       BufferSize;
   TEEC_Result Result;
 
-  if ((Arg->NumParams != 2) || !IsValueParam (&Arg->Params[0]) ||
+  if ((Arg->NumParams != 2) ||
+      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ||
+      (Arg->Params[1].Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) ||
       !OpteeMsgParamToBuffer (&Arg->Params[1], &Buffer, &BufferSize))
   {
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
   OpteeUuidFromOctets ((CONST UINT8 *)&Arg->Params[0].U.Value, &Uuid);
+  if (!CompareGuid (&Uuid, &mFtpmTaGuid)) {
+    return TEEC_ERROR_ITEM_NOT_FOUND;
+  }
 
   //
   // TAs ship as FREEFORM files named by their UUID in a firmware volume.
@@ -71,6 +70,7 @@ RpcLoadTa (
     Result = TEEC_SUCCESS;
   }
 
+  ZeroMem (Image, ImageSize);
   FreePool (Image);
   return Result;
 }
@@ -107,23 +107,73 @@ RpcGetTime (
   )
 {
   EFI_TIME  Time;
+  UINTN     MonthDays;
+  STATIC CONST UINT8  DaysPerMonth[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
-  if ((Arg->NumParams != 1) || !IsValueParam (&Arg->Params[0])) {
+  if ((Arg->NumParams != 1) ||
+      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT)) {
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
   if (EFI_ERROR (gRT->GetTime (&Time, NULL))) {
     return TEEC_ERROR_GENERIC;
   }
+  // Reject invalid civil fields before doing unsigned epoch arithmetic.
+  if ((Time.Year < 1970) || (Time.Year > 9999) ||
+      (Time.Month < 1) || (Time.Month > 12) ||
+      (Time.Day < 1) || (Time.Day > 31) ||
+      (Time.Hour > 23) || (Time.Minute > 59) || (Time.Second > 59) ||
+      (Time.Nanosecond > 999999999) ||
+      ((Time.TimeZone != EFI_UNSPECIFIED_TIMEZONE) &&
+       ((Time.TimeZone < -1440) || (Time.TimeZone > 1440))))
+  {
+    return TEEC_ERROR_GENERIC;
+  }
+
+  MonthDays = DaysPerMonth[Time.Month - 1];
+  if ((Time.Month == 2) && ((Time.Year % 4) == 0) &&
+      (((Time.Year % 100) != 0) || ((Time.Year % 400) == 0)))
+  {
+    MonthDays++;
+  }
+
+  if (Time.Day > MonthDays) {
+    return TEEC_ERROR_GENERIC;
+  }
 
   Arg->Params[0].U.Value.A = DaysFromCivil (Time.Year, Time.Month, Time.Day) * 86400 +
                              Time.Hour * 3600 + Time.Minute * 60 + Time.Second;
   if (Time.TimeZone != EFI_UNSPECIFIED_TIMEZONE) {
-    Arg->Params[0].U.Value.A += (INT64)Time.TimeZone * 60;
+    INT64  Seconds;
+
+    Seconds = (INT64)Arg->Params[0].U.Value.A + (INT64)Time.TimeZone * 60;
+    if (Seconds < 0) {
+      return TEEC_ERROR_GENERIC;
+    }
+
+    Arg->Params[0].U.Value.A = (UINT64)Seconds;
   }
 
   Arg->Params[0].U.Value.B = Time.Nanosecond;
   return TEEC_SUCCESS;
+}
+
+STATIC
+UINT32
+RpcPayloadOwner (
+  IN UINT64  Type
+  )
+{
+  switch (Type) {
+    case 0:
+      return OPTEE_SHM_RPC_APPL;
+    case 1:
+      return OPTEE_SHM_RPC_KERNEL;
+    case 2:
+      return OPTEE_SHM_RPC_GLOBAL;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -136,20 +186,30 @@ RpcShmAlloc (
   IN OUT OPTEE_MSG_ARG  *Arg
   )
 {
-  VOID  *Buffer;
-  UINTN Size;
+  VOID    *Buffer;
+  UINTN   Size;
+  UINT32  Owner;
 
-  if ((Arg->NumParams != 1) || !IsValueParam (&Arg->Params[0])) {
+  if ((Arg->NumParams != 1) ||
+      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
+    return TEEC_ERROR_BAD_PARAMETERS;
+  }
+
+  Owner = RpcPayloadOwner (Arg->Params[0].U.Value.A);
+  if ((Owner == 0) || (Arg->Params[0].U.Value.B > MAX_UINTN) ||
+      (Arg->Params[0].U.Value.C > MAX_UINTN) ||
+      (Arg->Params[0].U.Value.C == 0) ||
+      ((Arg->Params[0].U.Value.C & (Arg->Params[0].U.Value.C - 1)) != 0))
+  {
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
   Size   = (UINTN)Arg->Params[0].U.Value.B;
-  Buffer = OpteeShmAlloc (Size, (UINTN)Arg->Params[0].U.Value.C);
+  Buffer = OpteeShmAllocOwned (Size, (UINTN)Arg->Params[0].U.Value.C, Owner);
   if (Buffer == NULL) {
     return TEEC_ERROR_OUT_OF_MEMORY;
   }
 
-  ZeroMem (Buffer, Size);
   Arg->Params[0].Attr          = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
   Arg->Params[0].U.Tmem.BufPtr = (UINT64)(UINTN)Buffer;
   Arg->Params[0].U.Tmem.Size   = Size;
@@ -166,11 +226,19 @@ RpcShmFree (
   IN OUT OPTEE_MSG_ARG  *Arg
   )
 {
-  if ((Arg->NumParams != 1) || !IsValueParam (&Arg->Params[0])) {
+  UINT32  Owner;
+
+  if ((Arg->NumParams != 1) ||
+      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
-  OpteeShmFree ((VOID *)(UINTN)Arg->Params[0].U.Value.B);
+  Owner = RpcPayloadOwner (Arg->Params[0].U.Value.A);
+  if ((Owner == 0) || (Arg->Params[0].U.Value.B > MAX_UINTN) ||
+      !OpteeShmFreeOwned ((VOID *)(UINTN)Arg->Params[0].U.Value.B, Owner))
+  {
+    return TEEC_ERROR_BAD_PARAMETERS;
+  }
   return TEEC_SUCCESS;
 }
 
@@ -196,16 +264,25 @@ RpcCmd (
       break;
 
     case OPTEE_RPC_CMD_NOTIFICATION:
-      //
-      // Only one firmware thread ever runs in OP-TEE, so nobody can be
-      // waiting for a notification that firmware would have to deliver.
-      //
-      Result = TEEC_SUCCESS;
+      if ((Arg->NumParams != 1) ||
+          (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT))
+      {
+        Result = TEEC_ERROR_BAD_PARAMETERS;
+      } else if (Arg->Params[0].U.Value.A == 1) {
+        // SEND has no waiter to wake in this single-threaded client.
+        Result = TEEC_SUCCESS;
+      } else if (Arg->Params[0].U.Value.A == 0) {
+        Result = TEEC_ERROR_NOT_SUPPORTED;
+      } else {
+        Result = TEEC_ERROR_BAD_PARAMETERS;
+      }
       break;
 
     case OPTEE_RPC_CMD_SUSPEND:
-      if ((Arg->NumParams == 1) && IsValueParam (&Arg->Params[0])) {
-        MicroSecondDelay ((UINTN)Arg->Params[0].U.Value.A * 1000);
+      if ((Arg->NumParams == 1) &&
+          (Arg->Params[0].Attr == OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) &&
+          OpteeRpcDelay (Arg->Params[0].U.Value.A))
+      {
         Result = TEEC_SUCCESS;
       } else {
         Result = TEEC_ERROR_BAD_PARAMETERS;
@@ -234,7 +311,11 @@ RpcCmd (
   Arg->Ret = Result;
 }
 
-VOID
+/**
+  Handle one RPC without retaining mutable shared metadata across services.
+  FALSE means that no safe RPC response can be returned to secure world.
+**/
+BOOLEAN
 OpteeRpcHandle (
   IN OUT ARM_SMC_ARGS  *Args
   )
@@ -242,48 +323,55 @@ OpteeRpcHandle (
   UINT64         Address;
   VOID           *Buffer;
   OPTEE_MSG_ARG  *Arg;
+  UINTN          Length;
+  UINT32         NumParams;
+  UINT64         Storage[OPTEE_MSG_ARG_SIZE (OPTEE_RPC_MAX_PARAMS) / sizeof (UINT64)];
+  OPTEE_MSG_ARG  *Snapshot;
 
   switch (OPTEE_SMC_RPC_FUNC (Args->Arg0)) {
     case OPTEE_SMC_RPC_FUNC_ALLOC:
-      //
-      // [in] a1 size; [out] a1/a2 physical address, a4/a5 cookie.
-      //
-      Buffer    = OpteeShmAlloc (Args->Arg1, SIZE_4KB);
+      // Only a1/a2 and a4/a5 are allocation outputs; preserve resume state.
+      Buffer    = OpteeShmAllocOwned (Args->Arg1, SIZE_4KB, OPTEE_SHM_RPC_ARG);
       Address   = (UINT64)(UINTN)Buffer;
       Args->Arg1 = (UINTN)(Address >> 32);
       Args->Arg2 = (UINTN)(Address & MAX_UINT32);
       Args->Arg4 = Args->Arg1;
       Args->Arg5 = Args->Arg2;
-      break;
+      return TRUE;
 
     case OPTEE_SMC_RPC_FUNC_FREE:
-      OpteeShmFree ((VOID *)(UINTN)(((UINT64)Args->Arg1 << 32) | (UINT32)Args->Arg2));
-      break;
+      Address = ((UINT64)(UINT32)Args->Arg1 << 32) | (UINT32)Args->Arg2;
+      return OpteeShmFreeOwned ((VOID *)(UINTN)Address, OPTEE_SHM_RPC_ARG);
 
     case OPTEE_SMC_RPC_FUNC_FOREIGN_INTR:
-      //
-      // The interrupt has already been taken in normal world.
-      //
-      break;
+      return TRUE;
 
     case OPTEE_SMC_RPC_FUNC_CMD:
-      Address = ((UINT64)Args->Arg1 << 32) | (UINT32)Args->Arg2;
-      if (!OpteeShmContains (Address, sizeof (OPTEE_MSG_ARG))) {
-        DEBUG ((DEBUG_ERROR, "%a: RPC argument 0x%lx outside shared memory\n", __func__, Address));
-        break;
+      Address = ((UINT64)(UINT32)Args->Arg1 << 32) | (UINT32)Args->Arg2;
+      if (!OpteeShmIsOwned (Address, sizeof (OPTEE_MSG_ARG), OPTEE_SHM_RPC_ARG)) {
+        return FALSE;
       }
 
-      Arg = (OPTEE_MSG_ARG *)(UINTN)Address;
-      if (!OpteeShmContains (Address, OPTEE_MSG_ARG_SIZE (Arg->NumParams))) {
-        Arg->Ret = TEEC_ERROR_BAD_PARAMETERS;
-        break;
+      Arg      = (OPTEE_MSG_ARG *)(UINTN)Address;
+      Snapshot = (OPTEE_MSG_ARG *)Storage;
+      CopyMem (Snapshot, Arg, sizeof (*Snapshot));
+      NumParams = Snapshot->NumParams;
+      if (NumParams > OPTEE_RPC_MAX_PARAMS) {
+        return FALSE;
       }
 
-      RpcCmd (Arg);
-      break;
+      Length = OPTEE_MSG_ARG_SIZE (NumParams);
+      if (!OpteeShmIsOwned (Address, Length, OPTEE_SHM_RPC_ARG)) {
+        return FALSE;
+      }
+
+      CopyMem (Snapshot->Params, Arg->Params, NumParams * sizeof (OPTEE_MSG_PARAM));
+      RpcCmd (Snapshot);
+      // Never size copyback from a header that secure world may have changed.
+      CopyMem (Arg, Snapshot, Length);
+      return TRUE;
 
     default:
-      DEBUG ((DEBUG_ERROR, "%a: unknown RPC function 0x%lx\n", __func__, Args->Arg0));
-      break;
+      return FALSE;
   }
 }

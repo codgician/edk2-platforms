@@ -33,5 +33,10 @@
   DebugLib
   DxeServicesLib
   MemoryAllocationLib
+  PcdLib
   TimerLib
   UefiRuntimeServicesTableLib
+
+[FixedPcd]
+  gCixPlatformTokenSpaceGuid.PcdTrustZoneSharedMemoryBase
+  gCixPlatformTokenSpaceGuid.PcdTrustZoneSharedMemorySize
