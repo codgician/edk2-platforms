@@ -740,13 +740,22 @@
   MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf {
     <LibraryClasses>
       NULL|SecurityPkg/Library/DxeImageVerificationLib/DxeImageVerificationLib.inf
+!if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
+      # Measure loaded images (boot loaders into PCR 4, option ROMs into PCR 2).
+      NULL|SecurityPkg/Library/DxeTpm2MeasureBootLib/DxeTpm2MeasureBootLib.inf
+!endif
   }
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
   SecurityPkg/EnrollFromDefaultKeysApp/EnrollFromDefaultKeysApp.inf
   Platform/CIX/Sky1/Drivers/SecureBootDxe/SecureBootDxe.inf
   SecurityPkg/VariableAuthenticated/SecureBootDefaultKeysDxe/SecureBootDefaultKeysDxe.inf
 !else
-  MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
+  MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf {
+    <LibraryClasses>
+!if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
+      NULL|SecurityPkg/Library/DxeTpm2MeasureBootLib/DxeTpm2MeasureBootLib.inf
+!endif
+  }
 !endif
   Silicon/CIX/Sky1/Drivers/RngDxe/RngDxe.inf
   MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
@@ -1053,7 +1062,6 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
 
 !if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
   Platform/CIX/Sky1/Drivers/FTPMDxe/FTPMProtocol.inf
-  Platform/CIX/Sky1/Drivers/Tcg2Acpi/Tcg2Acpi.inf
   Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
@@ -1065,4 +1073,5 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
       NULL|SecurityPkg/Library/HashInstanceLibSha384/HashInstanceLibSha384.inf
   }
   Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf
+  Platform/CIX/Sky1/Drivers/TpmPlatformHierarchyDxe/TpmPlatformHierarchyDxe.inf
 !endif

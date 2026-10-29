@@ -134,6 +134,10 @@
 
   DEFINE LINUX_ACPI_CONFIG_OVERRIDE = TRUE
 
+# Firmware TPM: CIX's fTPM TA in the stock OP-TEE, with firmware acting as
+# tee-supplicant. Measurements start in DXE (Tcg2Dxe).
+  DEFINE FTPM_SUPPORT               = TRUE
+
 !include Platform/CIX/Sky1/Sky1Common.dsc.inc
 !include Platform/Radxa/RadxaCommon.dsc.inc
 !include Platform/Radxa/Platforms/CIX/Sky1/Sky1Common.dsc.inc
@@ -430,6 +434,11 @@
   gCixPlatformTokenSpaceGuid.PcdAcpiPrefPmProf|0x01  # Desktop
   gCixTokenSpaceGuid.PcdAcpiCsiDmaEnable|FALSE
 
+  # 0x02: firmware TPM
+  gCixPlatformTokenSpaceGuid.PcdDefaultTpmDeviceSelect|0x02
+  gCixPlatformTokenSpaceGuid.PcdDTPMSupport|$(DTPM_SUPPORT)
+  gCixPlatformTokenSpaceGuid.PcdFTPMSupport|$(FTPM_SUPPORT)
+
 [PcdsDynamicDefault.common]
 
   gEmbeddedTokenSpaceGuid.PcdDmaDeviceLimit|0x47fffffff
@@ -440,6 +449,9 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution|600
 
   gCixPlatformTokenSpaceGuid.PcdDynamicUint64Test|0x11111111
+
+  # TPM 2.0 for Tcg2Dxe; CIX's Tpm2DeviceLib routes commands to the fTPM.
+  gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid|{0x5a, 0xf2, 0x6b, 0x28, 0xc3, 0xc2, 0x8c, 0x40, 0xb3, 0xb4, 0x25, 0xe6, 0x75, 0x8b, 0x73, 0x17}
 
 !if $(COMPILE_SYSTEM_LOADER) == android
   gCixPlatformTokenSpaceGuid.AndroidFastboot|TRUE
