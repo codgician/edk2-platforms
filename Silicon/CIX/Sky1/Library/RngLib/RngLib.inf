@@ -24,6 +24,6 @@
   Silicon/CIX/Sky1/CixPkg.dec
 
 [LibraryClasses]
-  BaseLib
+  BaseMemoryLib
   DebugLib
-  TrngLib
+  MailBoxLib

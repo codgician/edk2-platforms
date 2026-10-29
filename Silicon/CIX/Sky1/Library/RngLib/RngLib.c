@@ -10,7 +10,59 @@
 
 #include <Library/DebugLib.h>
 #include <Library/RngLib.h>
-#include <Library/TrngLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/MailBoxLib.h>
+
+STATIC_ASSERT (OFFSET_OF (MBOX_TRNG_RESPONSE, ErrCode) == 0, "Mailbox error offset");
+STATIC_ASSERT (OFFSET_OF (MBOX_TRNG_RESPONSE, TrngLen) == 4, "Mailbox length offset");
+STATIC_ASSERT (OFFSET_OF (MBOX_TRNG_RESPONSE, Trng) == 8, "Mailbox entropy offset");
+STATIC_ASSERT (sizeof (MBOX_TRNG_RESPONSE) == 72, "Mailbox response size");
+
+/**
+  Retrieve exactly the entropy needed by a BOOLEAN RngLib entry point.
+
+  The public entry points request at most 16 bytes, so each uses one mailbox
+  request (the mailbox permits up to MAX_TRNG_SIZE bytes). Do not publish any
+  output until the entire response has been validated.
+
+  @param[out] Buffer  Destination for the random bytes.
+  @param[in]  Size    Number of bytes to retrieve, at most MAX_TRNG_SIZE.
+
+  @retval TRUE   The mailbox returned exactly Size random bytes.
+  @retval FALSE  The mailbox failed or returned an invalid response.
+**/
+STATIC
+BOOLEAN
+GetRandomBytes (
+  OUT VOID  *Buffer,
+  IN UINTN  Size
+  )
+{
+  MBOX_TRNG_PARAMETER  Params;
+  MBOX_TRNG_RESPONSE   Response;
+  EFI_STATUS          Status;
+  BOOLEAN             Success;
+
+  ASSERT ((Size != 0) && (Size <= MAX_TRNG_SIZE));
+  ZeroMem (&Response, sizeof (Response));
+  //
+  // The audited MailBoxLib returns success without touching Response when
+  // the response command is not MBOX_GET_TRNG (0x82000010). A nonzero error
+  // sentinel rejects that path without reserving any valid entropy pattern.
+  // The binary does not expose the outer mailbox frame's received size.
+  //
+  Response.ErrCode = MAX_UINT32;
+  Params.TrngLen  = (UINT32)Size;
+  Status         = MboxGetTrng (&Params, &Response);
+  Success        = !EFI_ERROR (Status) && (Response.ErrCode == 0) &&
+                   (Response.TrngLen == Size);
+  if (Success) {
+    CopyMem (Buffer, Response.Trng, Size);
+  }
+
+  ZeroMem (&Response, sizeof (Response));
+  return Success;
+}
 
 /**
   Generates a 16-bit random number.
@@ -29,19 +81,12 @@ GetRandomNumber16 (
   OUT UINT16  *Rand
   )
 {
-  EFI_STATUS  Status;
-
   ASSERT (Rand != NULL);
   if (Rand == NULL) {
     return FALSE;
   }
 
-  Status = GenerateRandomNumbers ((UINT8 *)Rand, sizeof (UINT16));
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  return TRUE;
+  return GetRandomBytes (Rand, sizeof (UINT16));
 }
 
 /**
@@ -61,19 +106,12 @@ GetRandomNumber32 (
   OUT UINT32  *Rand
   )
 {
-  EFI_STATUS  Status;
-
   ASSERT (Rand != NULL);
   if (Rand == NULL) {
     return FALSE;
   }
 
-  Status = GenerateRandomNumbers ((UINT8 *)Rand, sizeof (UINT32));
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  return TRUE;
+  return GetRandomBytes (Rand, sizeof (UINT32));
 }
 
 /**
@@ -93,19 +131,12 @@ GetRandomNumber64 (
   OUT UINT64  *Rand
   )
 {
-  EFI_STATUS  Status;
-
   ASSERT (Rand != NULL);
   if (Rand == NULL) {
     return FALSE;
   }
 
-  Status = GenerateRandomNumbers ((UINT8 *)Rand, sizeof (UINT64));
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  return TRUE;
+  return GetRandomBytes (Rand, sizeof (UINT64));
 }
 
 /**
@@ -125,17 +156,10 @@ GetRandomNumber128 (
   OUT UINT64  *Rand
   )
 {
-  EFI_STATUS  Status;
-
   ASSERT (Rand != NULL);
   if (Rand == NULL) {
     return FALSE;
   }
 
-  Status = GenerateRandomNumbers ((UINT8 *)Rand, 2 * sizeof (UINT64));
-  if (EFI_ERROR (Status)) {
-    return FALSE;
-  }
-
-  return TRUE;
+  return GetRandomBytes (Rand, 2 * sizeof (UINT64));
 }

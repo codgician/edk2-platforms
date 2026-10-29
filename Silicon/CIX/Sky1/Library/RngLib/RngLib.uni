@@ -10,4 +10,4 @@
 
 #string STR_MODULE_ABSTRACT             #language en-US "Instance of RNG Library"
 
-#string STR_MODULE_DESCRIPTION          #language en-US "RngLib that uses Hardware RNG module to generate random numbers."
+#string STR_MODULE_DESCRIPTION          #language en-US "Mailbox TRNG library. Accepts only successful responses with the exact requested entropy length, rejects stale command-mismatch output, and erases its response scratch."
