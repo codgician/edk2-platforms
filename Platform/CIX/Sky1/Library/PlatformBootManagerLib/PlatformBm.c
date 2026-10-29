@@ -37,6 +37,10 @@
 #include <Guid/SerialPortLibVendor.h>
 #include <Library/CixPostCodeLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
+#include <Library/Tpm2CommandLib.h>
+#include <Library/TpmPlatformHierarchyLib.h>
+#include <Protocol/SerialIo.h>
+#include <Protocol/Tcg2Protocol.h>
 #include <PlatformSetupVar.h>
 #include "PlatformBm.h"
 
@@ -806,6 +810,185 @@ RegisterIsoDebianBootOption (
   FreePool (FilePath);
 }
 
+STATIC BOOLEAN  mTpmBootGateComplete;
+
+/** Stop rather than release control with unproven TPM/PCR state. **/
+STATIC
+NORETURN
+VOID
+PlatformTpmBootStop (
+  VOID
+  )
+{
+  for (;;) {
+    CpuDeadLoop ();
+  }
+}
+
+/**
+  Process physical presence and protect platform authorization before BDS can
+  dispatch deferred images, PCI option ROMs or any load option.
+
+  Only the built-in SerialDxe path is connected here. In particular, do not use
+  the NVRAM console paths or ConnectDevicePath: the latter can dispatch DXE
+  drivers on a stalled connection. General USB/PCI/GOP discovery stays behind
+  the gate. A missing trusted console cannot authorize a pending PP request.
+**/
+STATIC
+VOID
+PlatformTpmBootGate (
+  VOID
+  )
+{
+  EFI_STATUS                       Status;
+  EFI_TCG2_PROTOCOL                *Tcg2;
+  EFI_TCG2_BOOT_SERVICE_CAPABILITY  Capability;
+  EFI_DEVICE_PATH_PROTOCOL         *Remaining;
+  EFI_HANDLE                       Serial;
+  EFI_HANDLE                       InputHandle;
+  EFI_HANDLE                       OutputHandle;
+  EFI_HANDLE                       SavedInputHandle;
+  EFI_HANDLE                       SavedOutputHandle;
+  EFI_SIMPLE_TEXT_INPUT_PROTOCOL   *Input;
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *Output;
+  EFI_SIMPLE_TEXT_INPUT_PROTOCOL   *SavedInput;
+  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *SavedOutput;
+  UINT32                           ErrorSeparator;
+  UINT32                           Pcr;
+  struct {
+    UINT32                 Size;
+    EFI_TCG2_EVENT_HEADER  Header;
+    UINT8                  Data[sizeof (UINT32)];
+  } Event;
+
+  if (mTpmBootGateComplete) {
+    return;
+  }
+
+  Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
+  if (Status == EFI_NOT_FOUND) {
+    // No TPM from the start: there is no TPM-backed secret to release.
+    mTpmBootGateComplete = TRUE;
+    return;
+  }
+
+  if (EFI_ERROR (Status)) {
+    PlatformTpmBootStop ();
+  }
+
+  ZeroMem (&Capability, sizeof (Capability));
+  Capability.Size = sizeof (Capability);
+  Status = Tcg2->GetCapability (Tcg2, &Capability);
+  if (EFI_ERROR (Status)) {
+    PlatformTpmBootStop ();
+  }
+
+  if (!Capability.TPMPresentFlag) {
+    mTpmBootGateComplete = TRUE;
+    return;
+  }
+
+  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
+  Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
+  Status = gBS->LocateDevicePath (&gEfiSerialIoProtocolGuid, &Remaining, &Serial);
+  if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.TermType.Header)) {
+    Status = EFI_NOT_FOUND;
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = gBS->ConnectController (Serial, NULL, Remaining, FALSE);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
+    Status = gBS->LocateDevicePath (&gEfiSimpleTextInProtocolGuid, &Remaining, &InputHandle);
+    if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.End)) {
+      Status = EFI_NOT_FOUND;
+    }
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = gBS->HandleProtocol (InputHandle, &gEfiSimpleTextInProtocolGuid, (VOID **)&Input);
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
+    Status = gBS->LocateDevicePath (&gEfiSimpleTextOutProtocolGuid, &Remaining, &OutputHandle);
+    if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.End)) {
+      Status = EFI_NOT_FOUND;
+    }
+  }
+
+  if (!EFI_ERROR (Status)) {
+    Status = gBS->HandleProtocol (OutputHandle, &gEfiSimpleTextOutProtocolGuid, (VOID **)&Output);
+  }
+
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "TPM gate: trusted serial console unavailable: %r\n", Status));
+    PlatformTpmBootStop ();
+  }
+
+  SavedInputHandle  = gST->ConsoleInHandle;
+  SavedOutputHandle = gST->ConsoleOutHandle;
+  SavedInput        = gST->ConIn;
+  SavedOutput       = gST->ConOut;
+  gST->ConsoleInHandle  = InputHandle;
+  gST->ConsoleOutHandle = OutputHandle;
+  gST->ConIn           = Input;
+  gST->ConOut          = Output;
+  gST->Hdr.CRC32       = 0;
+  gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
+
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  DEBUG ((DEBUG_INFO, "TPM gate: trusted PP complete\n"));
+  Status = ConfigureTpmPlatformHierarchy ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "TPM gate: hierarchy protection failed: %r\n", Status));
+    Status = Tpm2HierarchyControl (TPM_RH_PLATFORM, NULL, TPM_RH_PLATFORM, NO);
+    if (EFI_ERROR (Status)) {
+      // A damaged measurement path must not be used to manufacture a cap.
+      // Tcg2Dxe recognizes this error separator and caps every active bank
+      // directly, without depending on HashLib or available log space.
+      ErrorSeparator = 1;
+      ZeroMem (&Event, sizeof (Event));
+      Event.Size                 = sizeof (UINT32) + sizeof (Event.Header) + sizeof (Event.Data);
+      Event.Header.HeaderSize    = sizeof (Event.Header);
+      Event.Header.HeaderVersion = EFI_TCG2_EVENT_HEADER_VERSION;
+      Event.Header.EventType     = EV_SEPARATOR;
+      CopyMem (Event.Data, &ErrorSeparator, sizeof (ErrorSeparator));
+      for (Pcr = 0; Pcr < 8; Pcr++) {
+        Event.Header.PCRIndex = Pcr;
+        Status = Tcg2->HashLogExtendEvent (
+                         Tcg2,
+                         EFI_TCG2_EXTEND_ONLY,
+                         (EFI_PHYSICAL_ADDRESS)(UINTN)&ErrorSeparator,
+                         sizeof (ErrorSeparator),
+                         (EFI_TCG2_EVENT *)&Event
+                         );
+        if (EFI_ERROR (Status)) {
+          Print (L"WARNING: TPM protection and PCR capping failed. Boot stopped.\n");
+          PlatformTpmBootStop ();
+        }
+      }
+
+      Print (L"WARNING: TPM platform hierarchy protection failed. PCRs 0-7 capped; TPM-sealed boot secrets unavailable.\n");
+      DEBUG ((DEBUG_ERROR, "TPM gate: degraded boot, PCRs 0-7 capped\n"));
+    } else {
+      DEBUG ((DEBUG_INFO, "TPM gate: platform hierarchy disabled\n"));
+    }
+  } else {
+    DEBUG ((DEBUG_INFO, "TPM gate: platform hierarchy protected\n"));
+  }
+
+  gST->ConsoleInHandle  = SavedInputHandle;
+  gST->ConsoleOutHandle = SavedOutputHandle;
+  gST->ConIn           = SavedInput;
+  gST->ConOut          = SavedOutput;
+  gST->Hdr.CRC32       = 0;
+  gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
+  mTpmBootGateComplete = TRUE;
+}
+
 //
 // BDS Platform Functions
 //
@@ -831,6 +1014,8 @@ PlatformBootManagerBeforeConsole (
   EFI_HANDLE                *HandleBuffer;
   UINTN                     Index;
   EFI_DEVICE_PATH_PROTOCOL  *ConDevicePath;
+
+  PlatformTpmBootGate ();
 
   if (PcdGetBool (PcdAndroidBoot) == FALSE) {
     RegisterIsoDebianBootOption (ISO_DEBIAN_BOOT_FILE_NAME);
@@ -1126,13 +1311,6 @@ PlatformBootManagerAfterConsole (
   UINTN                         Index;
   UINTN                         VarSize;
   UINT8                         FarmEnableFlag;
-
-  //
-  // Process TPM PPI requests now that consoles are connected: a request that
-  // needs confirmation waits for a key press. This precedes ReadyToBoot,
-  // where the TPM platform hierarchy gets locked.
-  //
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
 
   FirmwareVerLength = StrLen (PcdGetPtr (PcdFirmwareVersionString));
 

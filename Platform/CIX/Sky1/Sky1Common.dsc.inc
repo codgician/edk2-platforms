@@ -295,6 +295,9 @@
   !endif
 !else
   Tcg2PhysicalPresenceLib|Platform/CIX/Sky1/Library/DxeTcg2PhysicalPresenceLibNull/DxeTcg2PhysicalPresenceLibNull.inf
+  Tpm2CommandLib|SecurityPkg/Library/Tpm2CommandLib/Tpm2CommandLib.inf
+  Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibRouter/Tpm2DeviceLibRouterDxe.inf
+  TpmPlatformHierarchyLib|SecurityPkg/Library/PeiDxeTpmPlatformHierarchyLibNull/PeiDxeTpmPlatformHierarchyLib.inf
 !endif
 
   # Library for Vendor Guid Variable Sync From Flash
@@ -1070,5 +1073,4 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
       NULL|SecurityPkg/Library/HashInstanceLibSha384/HashInstanceLibSha384.inf
   }
   Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf
-  Platform/CIX/Sky1/Drivers/TpmPlatformHierarchyDxe/TpmPlatformHierarchyDxe.inf
 !endif

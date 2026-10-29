@@ -56,6 +56,8 @@
   UefiRuntimeServicesTableLib
   PostCodeLib
   Tcg2PhysicalPresenceLib
+  Tpm2CommandLib
+  TpmPlatformHierarchyLib
 
 [FixedPcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable
@@ -102,6 +104,10 @@
   gEfiDevicePathProtocolGuid
   gEfiGraphicsOutputProtocolGuid
   gEfiLoadedImageProtocolGuid
+  gEfiSerialIoProtocolGuid
+  gEfiSimpleTextInProtocolGuid
+  gEfiSimpleTextOutProtocolGuid
+  gEfiTcg2ProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiSimpleFileSystemProtocolGuid
   gEsrtManagementProtocolGuid
