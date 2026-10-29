@@ -1,0 +1,37 @@
+## @file
+#  GlobalPlatform TEE Client API for OP-TEE, including the tee-supplicant
+#  services (TA loading, REE FS) that firmware has to provide itself.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = OpteeClientApiLib
+  FILE_GUID                      = 4f0b6b53-3b0e-4c8e-9e0e-8f6d2b1c7a41
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = OpteeClientApiLib|DXE_DRIVER UEFI_APPLICATION
+
+[Sources]
+  OpteeClientApiLib.c
+  OpteeClientInternal.h
+  OpteeClientRpc.c
+  OpteeReeFs.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  Platform/CIX/Sky1/Sky1.dec
+
+[LibraryClasses]
+  ArmMmuLib
+  ArmSmcLib
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DxeServicesLib
+  MemoryAllocationLib
+  TimerLib
+  UefiRuntimeServicesTableLib
