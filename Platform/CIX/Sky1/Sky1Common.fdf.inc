@@ -30,7 +30,6 @@
   INF Platform/CIX/Sky1/Drivers/PlatformDxe/PlatformDxe.inf
   INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
   INF Silicon/CIX/Sky1/Drivers/RngDxe/RngDxe.inf
-  INF MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
 !if $(SOC_PWR_CLK_RST_ENABLE) == TRUE
   # SCMI Driver
   INF Platform/CIX/Sky1/Drivers/ArmScmiDxe/ArmScmiDxe.inf
@@ -112,8 +111,6 @@
 !if $(SECURE_BOOT_ENABLE) == TRUE
 !include ArmPlatformPkg/SecureBootDefaultKeys.fdf.inc
   INF SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
-  INF SecurityPkg/VariableAuthenticated/SecureBootDefaultKeysDxe/SecureBootDefaultKeysDxe.inf
-  INF Platform/CIX/Sky1/Drivers/SecureBootDxe/SecureBootDxe.inf
 !endif
   INF MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf
   INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
