@@ -1,34 +1,23 @@
 /** @file
+  Initialize the PP flags once and require an exact, immediately locked policy.
 
   Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
-
   SPDX-License-Identifier: BSD-2-Clause-Patent
-
 **/
+#include <Uefi.h>
+#include <Library/PcdLib.h>
+#include "../../Library/DxeTcg2PhysicalPresenceLib/PpPolicy.h"
 
-#include <Protocol/Tcg2Protocol.h>
-#include <Protocol/VariableLock.h>
-#include <Library/DebugLib.h>
-#include <Library/BaseMemoryLib.h>
-#include <Library/UefiRuntimeServicesTableLib.h>
-#include <Library/UefiDriverEntryPoint.h>
-#include <Library/UefiBootServicesTableLib.h>
-#include <Library/UefiLib.h>
-#include <Library/MemoryAllocationLib.h>
-#include <Library/PrintLib.h>
-#include <Library/HiiLib.h>
-#include <Library/HobLib.h>
-#include <Guid/EventGroup.h>
-#include <Guid/Tcg2PhysicalPresenceData.h>
-#include <Library/Tcg2PhysicalPresenceLib.h>
-#include <Library/Tcg2PpVendorLib.h>
+/** Initialize flags only on NOT_FOUND, then register and verify LOCK_NOW.
 
-/**
-    This is the entry point of the TPM variable DXE driver, which is responsible for initializing and locking the physical presence flag variable.
-    The main steps include:
-    1. Initialize the physical presence flags.
-    2. Check and set the physical presence flag variable.
-    3. Ensure that the physical presence flag variable is read-only to prevent it from being tampered with by malicious software.
+  Optional flag-changing PPI operations are deliberately unsupported: no trusted
+  write window or reset-spanning authorization token is needed.
+
+  @param[in] ImageHandle  Driver image handle.
+  @param[in] SystemTable UEFI system table.
+
+  @retval EFI_SUCCESS  Exact flags and their lock have been verified.
+  @retval Others       Do not process physical-presence requests this boot.
 **/
 EFI_STATUS
 EFIAPI
@@ -37,55 +26,78 @@ TPMVariableDxeEntryPoint (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS                        Status = EFI_SUCCESS;
-  UINTN                             DataSize;
-  EDKII_VARIABLE_LOCK_PROTOCOL      *VariableLockProtocol;
-  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  PpiFlags;
+  EFI_STATUS                        Status;
+  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  Flags;
+  EDKII_VARIABLE_POLICY_PROTOCOL    *Policy;
+  BOOLEAN                           Enabled;
 
-  //
-  // Initialize physical presence flags.
-  //
-  DataSize = sizeof (EFI_TCG2_PHYSICAL_PRESENCE_FLAGS);
-  Status   = gRT->GetVariable (
-                    TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE,
-                    &gEfiTcg2PhysicalPresenceGuid,
-                    NULL,
-                    &DataSize,
-                    &PpiFlags
-                    );
+  struct {
+    VARIABLE_POLICY_ENTRY    Entry;
+    CHAR16                   Name[sizeof (TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE) / sizeof (CHAR16)];
+  } Lock;
+
+  Status = PpReadFlags (&Flags);
+  if (Status == EFI_NOT_FOUND) {
+    Flags.PPFlags = PcdGet32 (PcdTcg2PhysicalPresenceFlags) | PP_REQUIRED_FLAGS;
+    if ((Flags.PPFlags & ~PP_FLAGS_MASK) != 0) {
+      return EFI_COMPROMISED_DATA;
+    }
+
+    Status = gRT->SetVariable (
+                               TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE,
+                               &gEfiTcg2PhysicalPresenceGuid,
+                               PP_VARIABLE_ATTRIBUTES,
+                               sizeof (Flags),
+                               &Flags
+                               );
+    if (!EFI_ERROR (Status)) {
+      Status = PpReadFlags (&Flags);
+    }
+  }
+
   if (EFI_ERROR (Status)) {
-    PpiFlags.PPFlags = PcdGet32 (PcdTcg2PhysicalPresenceFlags);
-    Status           = gRT->SetVariable (
-                              TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE,
-                              &gEfiTcg2PhysicalPresenceGuid,
-                              EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
-                              sizeof (EFI_TCG2_PHYSICAL_PRESENCE_FLAGS),
-                              &PpiFlags
-                              );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "[TPM2] Set physical presence flag failed, Status = %r\n", Status));
-      return Status;
-    }
-
-    DEBUG ((DEBUG_INFO, "[TPM2] Initial physical presence flags value is 0x%x\n", PpiFlags.PPFlags));
+    return Status;
   }
 
-  // This flags variable controls whether physical presence is required for TPM command.
-  // It should be protected from malicious software. We set it as read-only variable here.
-
-  Status = gBS->LocateProtocol (&gEdkiiVariableLockProtocolGuid, NULL, (VOID **)&VariableLockProtocol);
-  if (!EFI_ERROR (Status)) {
-    Status = VariableLockProtocol->RequestToLock (
-                                     VariableLockProtocol,
-                                     TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE,
-                                     &gEfiTcg2PhysicalPresenceGuid
-                                     );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "[TPM2] Error when lock variable %s, Status = %r\n", TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE, Status));
-      ASSERT_EFI_ERROR (Status);
-    }
+  Status = gBS->LocateProtocol (&gEdkiiVariablePolicyProtocolGuid, NULL, (VOID **)&Policy);
+  if (EFI_ERROR (Status)) {
+    return Status;
   }
 
-  DEBUG ((DEBUG_INFO, "TPMVariableDxe Success.\n"));
+  if ((Policy->Revision < 0x0000000000010000ULL) ||
+      (Policy->IsVariablePolicyEnabled == NULL) || (Policy->RegisterVariablePolicy == NULL))
+  {
+    return EFI_UNSUPPORTED;
+  }
+
+  Enabled = FALSE;
+  Status  = Policy->IsVariablePolicyEnabled (&Enabled);
+  if (EFI_ERROR (Status) || !Enabled) {
+    return EFI_SECURITY_VIOLATION;
+  }
+
+  ZeroMem (&Lock, sizeof (Lock));
+  Lock.Entry.Version            = VARIABLE_POLICY_ENTRY_REVISION;
+  Lock.Entry.Size               = sizeof (Lock);
+  Lock.Entry.OffsetToName       = sizeof (VARIABLE_POLICY_ENTRY);
+  Lock.Entry.Namespace          = gEfiTcg2PhysicalPresenceGuid;
+  Lock.Entry.MinSize            = sizeof (Flags);
+  Lock.Entry.MaxSize            = sizeof (Flags);
+  Lock.Entry.AttributesMustHave = PP_VARIABLE_ATTRIBUTES;
+  Lock.Entry.AttributesCantHave = (UINT32) ~PP_VARIABLE_ATTRIBUTES;
+  Lock.Entry.LockPolicyType     = VARIABLE_POLICY_TYPE_LOCK_NOW;
+  CopyMem (Lock.Name, TCG2_PHYSICAL_PRESENCE_FLAGS_VARIABLE, sizeof (Lock.Name));
+  Status = Policy->RegisterVariablePolicy (&Lock.Entry);
+  // ALREADY_STARTED is not sufficient: verify that the existing policy is exact.
+  if (EFI_ERROR (Status) && (Status != EFI_ALREADY_STARTED)) {
+    DEBUG ((DEBUG_ERROR, "[TPM2] Cannot lock PP flags: %r\n", Status));
+    return Status;
+  }
+
+  Status = PpVerifyFlagsLock ();
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "[TPM2] PP flags lock verification failed: %r\n", Status));
+  }
+
   return Status;
 }
