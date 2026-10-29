@@ -44,6 +44,7 @@ EFI_STATUS
   IN FTPM_INIT_PROTOCOL *this
   );
 
+/** Returns TRUE only while the firmware TA session is open and usable. **/
 typedef
 BOOLEAN
 (EFIAPI* FTPM_GET_STATUS) (
@@ -54,6 +55,11 @@ BOOLEAN
   Send a TPM command to the fTPM TA and receive its response. The protocol
   producer owns the only OP-TEE client in firmware; consumers must not link
   their own OpteeClientApiLib instance.
+  Commands must contain a complete ten-byte TPM header, match its paramSize,
+  and fit the TA's 0x1000-byte limit. Success guarantees a complete response
+  with a valid TPM tag and paramSize equal to the returned, capacity-bounded
+  size. Errors never publish response bytes; genuine short-buffer replies
+  return the required size. Fatal session errors and EBS revoke readiness.
 **/
 typedef
 EFI_STATUS

@@ -23,6 +23,7 @@
   SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
+  BaseLib
   BaseMemoryLib
   DebugLib
   OpteeClientApiLib
@@ -40,7 +41,5 @@
   gCixFtpmInitProtocolGuid         ## PRODUCES
 
 [Depex]
-  #
-  # The TA's NV storage lives in variables.
-  #
+  # Diagnostics use the variable service only before ExitBootServices.
   gEfiVariableArchProtocolGuid AND gEfiVariableWriteArchProtocolGuid

@@ -14,6 +14,8 @@
 **/
 
 #include <Uefi.h>
+#include <Guid/EventGroup.h>
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/OpteeClientApiLib.h>
@@ -28,6 +30,8 @@
 // fTPM TA command: [in] memref[0] TPM command, [in/out] memref[1] response.
 //
 #define FTPM_TA_SUBMIT_COMMAND  0
+#define FTPM_TA_MAX_COMMAND     0x1000
+#define FTPM_TA_MAX_RESPONSE    0x1000
 
 #define FTPM_STATUS_VARIABLE  L"FtpmStatus"
 
@@ -38,6 +42,11 @@ STATIC TEEC_Session  mSession;
 STATIC BOOLEAN       mClientReady;
 STATIC BOOLEAN       mSessionOpen;
 STATIC EFI_EVENT     mExitBootServicesEvent;
+STATIC BOOLEAN       mSessionUsable;
+STATIC BOOLEAN       mHandoffStarted;
+STATIC BOOLEAN       mCommandBusy;
+STATIC UINT8         mCommandBuffer[FTPM_TA_MAX_COMMAND];
+STATIC UINT8         mResponseBuffer[FTPM_TA_MAX_RESPONSE];
 
 //
 // Diagnostics, published by PublishStatus().
@@ -50,6 +59,27 @@ STATIC UINT32       mFailures;
 STATIC TEEC_Result  mLastFailure;
 STATIC UINT32       mLastFailureOrigin;
 
+/**
+  Erase owned authorization-bearing copies even under link-time optimization.
+
+  @param[in,out] Buffer  Storage owned by this driver.
+  @param[in]     Size    Number of bytes to erase.
+**/
+STATIC
+VOID
+ScrubBuffer (
+  IN OUT VOID  *Buffer,
+  IN UINTN     Size
+  )
+{
+  volatile UINT8  *Byte;
+
+  Byte = (volatile UINT8 *)Buffer;
+  while (Size-- != 0) {
+    *Byte++ = 0;
+  }
+}
+
 STATIC
 VOID
 PublishStatus (
@@ -60,25 +90,25 @@ PublishStatus (
   UINTN  Length;
 
   Length = AsciiSPrint (
-             Text,
-             sizeof (Text),
-             "client=%r open=0x%x/%u session=%a commands=%u failures=%u last-failure=0x%x/%u\n",
-             mClientStatus,
-             mOpenResult,
-             mOpenOrigin,
-             mSessionOpen ? "open" : "closed",
-             mCommands,
-             mFailures,
-             mLastFailure,
-             mLastFailureOrigin
-             );
+                        Text,
+                        sizeof (Text),
+                        "client=%r open=0x%x/%u session=%a commands=%u failures=%u last-failure=0x%x/%u\n",
+                        mClientStatus,
+                        mOpenResult,
+                        mOpenOrigin,
+                        mSessionOpen ? "open" : "closed",
+                        mCommands,
+                        mFailures,
+                        mLastFailure,
+                        mLastFailureOrigin
+                        );
   gRT->SetVariable (
-         FTPM_STATUS_VARIABLE,
-         &gCixFtpmInitProtocolGuid,
-         EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
-         Length,
-         Text
-         );
+                    FTPM_STATUS_VARIABLE,
+                    &gCixFtpmInitProtocolGuid,
+                    EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                    Length,
+                    Text
+                    );
 }
 
 STATIC
@@ -88,29 +118,30 @@ FtpmOpenSession (
   IN FTPM_INIT_PROTOCOL  *This
   )
 {
-  if (mSessionOpen) {
-    return EFI_SUCCESS;
-  }
-
-  if (!mClientReady) {
+  if (!mClientReady || mHandoffStarted) {
     return EFI_NOT_READY;
   }
 
+  if (mSessionOpen) {
+    return mSessionUsable ? EFI_SUCCESS : EFI_NOT_READY;
+  }
+
   mOpenResult = TEEC_OpenSession (
-                  &mContext,
-                  &mSession,
-                  (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
-                  TEEC_LOGIN_PUBLIC,
-                  NULL,
-                  NULL,
-                  &mOpenOrigin
-                  );
+                                  &mContext,
+                                  &mSession,
+                                  (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
+                                  TEEC_LOGIN_PUBLIC,
+                                  NULL,
+                                  NULL,
+                                  &mOpenOrigin
+                                  );
   if (mOpenResult != TEEC_SUCCESS) {
     DEBUG ((DEBUG_ERROR, "fTPM: opening TA session failed: 0x%x (origin %u)\n", mOpenResult, mOpenOrigin));
     return EFI_DEVICE_ERROR;
   }
 
-  mSessionOpen = TRUE;
+  mSessionOpen   = TRUE;
+  mSessionUsable = TRUE;
   return EFI_SUCCESS;
 }
 
@@ -123,7 +154,11 @@ FtpmGetSession (
   OUT TEEC_Session        *Session
   )
 {
-  if (!mSessionOpen) {
+  if ((Context == NULL) || (Session == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (!mSessionOpen || !mSessionUsable || mHandoffStarted) {
     return EFI_NOT_READY;
   }
 
@@ -139,9 +174,24 @@ FtpmGetStatus (
   IN FTPM_INIT_PROTOCOL  *This
   )
 {
-  return mSessionOpen;
+  return mClientReady && mSessionOpen && mSessionUsable && !mHandoffStarted;
 }
 
+/**
+  Validate the complete TA frame before publishing any response bytes.
+
+  @param[in]     This        Protocol instance.
+  @param[in]     InputSize   Command bytes, including the ten-byte header.
+  @param[in]     Input       TPM command in wire byte order.
+  @param[in,out] OutputSize  Capacity on entry; validated or required size on exit.
+  @param[out]    Output      Receives bytes only after a validated success.
+
+  @retval EFI_SUCCESS            A complete, bounded TPM response was returned.
+  @retval EFI_BUFFER_TOO_SMALL   A genuine short-buffer reply supplied its size.
+  @retval EFI_INVALID_PARAMETER  The command or pointer contract is invalid.
+  @retval EFI_NOT_READY          The firmware session is not usable.
+  @retval EFI_DEVICE_ERROR       The TA failed or returned malformed framing.
+**/
 STATIC
 EFI_STATUS
 EFIAPI
@@ -155,47 +205,96 @@ FtpmSubmitCommand (
 {
   TEEC_Operation  Operation;
   TEEC_Result     Result;
-  uint32_t        Origin;
+  UINT32          Origin;
+  UINT32          Capacity;
+  UINTN           ResponseSize;
+  UINT16          Tag;
+  EFI_STATUS      Status;
 
-  if (!mSessionOpen) {
+  if ((Input == NULL) || (OutputSize == NULL) ||
+      ((Output == NULL) && (*OutputSize != 0)) ||
+      (InputSize < sizeof (TPM2_COMMAND_HEADER)) ||
+      (InputSize > sizeof (mCommandBuffer)))
+  {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (!FtpmGetStatus (This) || mCommandBusy) {
     return EFI_NOT_READY;
   }
 
+  //
+  // Snapshot before parsing. Both buffers are fixed DXE storage, including
+  // during Tcg2Dxe's final EBS measurements; caller output is never input.
+  //
+  mCommandBusy = TRUE;
+  CopyMem (mCommandBuffer, Input, InputSize);
+  if (SwapBytes32 (ReadUnaligned32 ((CONST UINT32 *)(mCommandBuffer + 2))) != InputSize) {
+    Status = EFI_INVALID_PARAMETER;
+    goto Done;
+  }
+
+  Capacity    = MIN (*OutputSize, sizeof (mResponseBuffer));
+  *OutputSize = 0;
+  ZeroMem (mResponseBuffer, sizeof (mResponseBuffer));
   ZeroMem (&Operation, sizeof (Operation));
   Operation.paramTypes = TEEC_PARAM_TYPES (
-                           TEEC_MEMREF_TEMP_INPUT,
-                           TEEC_MEMREF_TEMP_INOUT,
-                           TEEC_NONE,
-                           TEEC_NONE
-                           );
-  Operation.params[0].tmpref.buffer = Input;
+                                           TEEC_MEMREF_TEMP_INPUT,
+                                           TEEC_MEMREF_TEMP_INOUT,
+                                           TEEC_NONE,
+                                           TEEC_NONE
+                                           );
+  Operation.params[0].tmpref.buffer = mCommandBuffer;
   Operation.params[0].tmpref.size   = InputSize;
-  Operation.params[1].tmpref.buffer = Output;
-  Operation.params[1].tmpref.size   = *OutputSize;
+  Operation.params[1].tmpref.buffer = mResponseBuffer;
+  Operation.params[1].tmpref.size   = Capacity;
 
   mCommands++;
-  Result = TEEC_InvokeCommand (&mSession, FTPM_TA_SUBMIT_COMMAND, &Operation, &Origin);
+  Origin       = TEEC_ORIGIN_API;
+  Result       = TEEC_InvokeCommand (&mSession, FTPM_TA_SUBMIT_COMMAND, &Operation, &Origin);
+  ResponseSize = Operation.params[1].tmpref.size;
+  Status       = EFI_DEVICE_ERROR;
   if (Result == TEEC_ERROR_SHORT_BUFFER) {
-    *OutputSize = (UINT32)Operation.params[1].tmpref.size;
-    return EFI_BUFFER_TOO_SMALL;
-  }
-
-  if (Result != TEEC_SUCCESS) {
-    DEBUG ((DEBUG_ERROR, "fTPM: command failed: 0x%x (origin %u)\n", Result, Origin));
-    //
-    // Only record: Tcg2Dxe also submits commands during ExitBootServices,
-    // where variable services (served from OP-TEE) must not be called.
-    //
-    if (mFailures++ == 0) {
-      mLastFailure       = Result;
-      mLastFailureOrigin = Origin;
+    if ((ResponseSize > Capacity) && (ResponseSize >= sizeof (TPM2_RESPONSE_HEADER)) &&
+        (ResponseSize <= sizeof (mResponseBuffer)))
+    {
+      *OutputSize = (UINT32)ResponseSize;
+      Status      = EFI_BUFFER_TOO_SMALL;
+      goto Done;
     }
-
-    return EFI_DEVICE_ERROR;
+  } else if (Result == TEEC_SUCCESS) {
+    if ((ResponseSize >= sizeof (TPM2_RESPONSE_HEADER)) && (ResponseSize <= Capacity)) {
+      Tag = SwapBytes16 (ReadUnaligned16 ((CONST UINT16 *)mResponseBuffer));
+      if (((Tag == TPM_ST_NO_SESSIONS) || (Tag == TPM_ST_SESSIONS)) &&
+          (SwapBytes32 (ReadUnaligned32 ((CONST UINT32 *)(mResponseBuffer + 2))) == ResponseSize))
+      {
+        CopyMem (Output, mResponseBuffer, ResponseSize);
+        *OutputSize = (UINT32)ResponseSize;
+        Status      = EFI_SUCCESS;
+        goto Done;
+      }
+    }
+  } else if ((Result == TEEC_ERROR_TARGET_DEAD) || (Result == TEEC_ERROR_COMMUNICATION) ||
+             (Result == TEEC_ERROR_BAD_STATE) || (Result == TEEC_ERROR_SECURITY))
+  {
+    mSessionUsable = FALSE;
   }
 
-  *OutputSize = (UINT32)Operation.params[1].tmpref.size;
-  return EFI_SUCCESS;
+  if ((Result == TEEC_SUCCESS) || (Result == TEEC_ERROR_SHORT_BUFFER)) {
+    Result = TEEC_ERROR_BAD_FORMAT;
+  }
+
+  // Diagnostics only: variable services may themselves use OP-TEE at EBS.
+  if (mFailures++ == 0) {
+    mLastFailure       = Result;
+    mLastFailureOrigin = Origin;
+  }
+
+Done:
+  ScrubBuffer (mCommandBuffer, sizeof (mCommandBuffer));
+  ScrubBuffer (mResponseBuffer, sizeof (mResponseBuffer));
+  mCommandBusy = FALSE;
+  return Status;
 }
 
 STATIC FTPM_INIT_PROTOCOL  mFtpmProtocol = {
@@ -206,9 +305,9 @@ STATIC FTPM_INIT_PROTOCOL  mFtpmProtocol = {
 };
 
 /**
-  Runs at TPL_CALLBACK, after Tcg2Dxe's TPL_NOTIFY handlers have measured
-  the ExitBootServices events. Must not call variable services: they are
-  served from OP-TEE and boot services are being torn down.
+  Runs at TPL_CALLBACK, after Tcg2Dxe's TPL_NOTIFY final measurements.
+  A callback cannot veto EBS: halt on unconfirmed close rather than hand
+  Linux a still-owned single-instance TA. No variable or allocation calls.
 **/
 STATIC
 VOID
@@ -218,14 +317,31 @@ OnExitBootServices (
   IN VOID       *Context
   )
 {
+  TEEC_Result  Result;
+
+  mHandoffStarted = TRUE;
+  mSessionUsable  = FALSE;
   if (mSessionOpen) {
-    TEEC_CloseSession (&mSession);
+    // C1's client implementation must reserve its close message during init.
+    // No driver-owned buffer can be passed through this fixed API.
+    Result = OpteeClientCloseSession (&mSession);
+    if (Result != TEEC_SUCCESS) {
+      DEBUG ((DEBUG_ERROR, "fTPM: EBS close failed: 0x%x; refusing OS handoff\n", Result));
+      CpuDeadLoop ();
+      return;
+    }
+
     mSessionOpen = FALSE;
   }
 
   if (mClientReady) {
     TEEC_FinalizeContext (&mContext);
-    OpteeClientApiFinalize ();
+    if (!OpteeClientApiFinalize ()) {
+      DEBUG ((DEBUG_ERROR, "fTPM: EBS client finalization failed; refusing OS handoff\n"));
+      CpuDeadLoop ();
+      return;
+    }
+
     mClientReady = FALSE;
   }
 }
@@ -252,6 +368,19 @@ FtpmDxeEntryPoint (
   EFI_HANDLE  Handle;
   EFI_EVENT   Event;
 
+  // Never open the single-session TA without an installed handoff handler.
+  Status = gBS->CreateEventEx (
+                               EVT_NOTIFY_SIGNAL,
+                               TPL_CALLBACK,
+                               OnExitBootServices,
+                               NULL,
+                               &gEfiEventExitBootServicesGuid,
+                               &mExitBootServicesEvent
+                               );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
   mClientStatus = OpteeClientApiInitialize (ImageHandle);
   if (!EFI_ERROR (mClientStatus) && (TEEC_InitializeContext (NULL, &mContext) == TEEC_SUCCESS)) {
     mClientReady = TRUE;
@@ -262,22 +391,12 @@ FtpmDxeEntryPoint (
 
   PublishStatus ();
 
-  //
-  // Refresh the status once DXE-phase measurements are done; ReadyToBoot
-  // still allows variable services.
-  //
+  // Diagnostics may be refreshed at ReadyToBoot, never at EBS.
+  Event  = NULL;
   Status = EfiCreateEventReadyToBootEx (TPL_CALLBACK, OnReadyToBoot, NULL, &Event);
-  ASSERT_EFI_ERROR (Status);
-
-  Status = gBS->CreateEventEx (
-                  EVT_NOTIFY_SIGNAL,
-                  TPL_CALLBACK,
-                  OnExitBootServices,
-                  NULL,
-                  &gEfiEventExitBootServicesGuid,
-                  &mExitBootServicesEvent
-                  );
-  ASSERT_EFI_ERROR (Status);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "fTPM: cannot refresh ReadyToBoot diagnostics: %r\n", Status));
+  }
 
   //
   // Install unconditionally: every user of FTpmDeviceLib depends on this
@@ -285,10 +404,19 @@ FtpmDxeEntryPoint (
   // through GetFTPMStatus instead.
   //
   Handle = NULL;
-  return gBS->InstallMultipleProtocolInterfaces (
-                &Handle,
-                &gCixFtpmInitProtocolGuid,
-                &mFtpmProtocol,
-                NULL
-                );
+  Status = gBS->InstallMultipleProtocolInterfaces (
+                                                   &Handle,
+                                                   &gCixFtpmInitProtocolGuid,
+                                                   &mFtpmProtocol,
+                                                   NULL
+                                                   );
+  if (EFI_ERROR (Status)) {
+    OnExitBootServices (NULL, NULL);
+    gBS->CloseEvent (mExitBootServicesEvent);
+    if (Event != NULL) {
+      gBS->CloseEvent (Event);
+    }
+  }
+
+  return Status;
 }
