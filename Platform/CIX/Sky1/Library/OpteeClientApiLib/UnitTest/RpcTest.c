@@ -527,6 +527,50 @@ SuspendBounds (VOID **State)
   TestFini ();
 }
 
+STATIC EFI_STATUS
+FailedTime (EFI_TIME *Time)
+{
+  (VOID)Time;
+  return EFI_DEVICE_ERROR;
+}
+
+STATIC EFI_STATUS
+NoMemoryImage (CONST EFI_GUID *Guid, VOID **Image, UINTN *Size)
+{
+  (VOID)Guid;
+  *Size = 16;
+  *Image = AllocatePool (*Size);
+  assert_null (*Image);
+  return EFI_OUT_OF_RESOURCES;
+}
+
+STATIC VOID
+ShortHeadersAndServiceErrors (VOID **State)
+{
+  OPTEE_MSG_ARG *Arg;
+  (VOID)State;
+  TestInit ();
+  Arg = RpcArgument (sizeof (*Arg) - 1);
+  assert_false (Dispatch (Arg));
+  assert_int_equal (TestTimeCalls + TestFvCalls + TestDelayCalls, 0);
+  Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (2));
+  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
+  Arg->NumParams = 1;
+  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
+  TestGetTimeHook = FailedTime;
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_ERROR_GENERIC);
+  assert_int_equal (TestTimeCalls, 1);
+  SetLoad (Arg, NULL, 0);
+  TestFvHook = NoMemoryImage;
+  TestFailAllocation (1);
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_ERROR_ITEM_NOT_FOUND);
+  assert_int_equal (TestFvCalls, 1);
+  TestFailAllocation (0);
+  TestFini ();
+}
+
 int main (void)
 {
   const struct CMUnitTest Tests[] = {
@@ -541,6 +585,7 @@ int main (void)
     cmocka_unit_test (PayloadOwnership),
     cmocka_unit_test (RejectArgumentAndClientMemrefs),
     cmocka_unit_test (SmcAllocationAndFree),
+    cmocka_unit_test (ShortHeadersAndServiceErrors),
     cmocka_unit_test (SuspendBounds)
   };
   return cmocka_run_group_tests (Tests, NULL, NULL);
