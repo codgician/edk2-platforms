@@ -928,24 +928,25 @@ PlatformTpmBootGate (
     Status = gBS->HandleProtocol (OutputHandle, &gEfiSimpleTextOutProtocolGuid, (VOID **)&Output);
   }
 
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "TPM gate: trusted serial console unavailable: %r\n", Status));
-    PlatformTpmBootStop ();
-  }
-
   SavedInputHandle  = gST->ConsoleInHandle;
   SavedOutputHandle = gST->ConsoleOutHandle;
   SavedInput        = gST->ConIn;
   SavedOutput       = gST->ConOut;
-  gST->ConsoleInHandle  = InputHandle;
-  gST->ConsoleOutHandle = OutputHandle;
-  gST->ConIn           = Input;
-  gST->ConOut          = Output;
-  gST->Hdr.CRC32       = 0;
-  gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
+  if (EFI_ERROR (Status)) {
+    // Leave requests pending: only a trusted console may confirm them.
+    DEBUG ((DEBUG_WARN, "TPM gate: trusted serial console unavailable (%r); PP skipped, requests remain pending\n", Status));
+    Print (L"TPM gate: trusted serial console unavailable; PP skipped, requests remain pending.\n");
+  } else {
+    gST->ConsoleInHandle  = InputHandle;
+    gST->ConsoleOutHandle = OutputHandle;
+    gST->ConIn           = Input;
+    gST->ConOut          = Output;
+    gST->Hdr.CRC32       = 0;
+    gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
 
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  DEBUG ((DEBUG_INFO, "TPM gate: trusted PP complete\n"));
+    Tcg2PhysicalPresenceLibProcessRequest (NULL);
+    DEBUG ((DEBUG_INFO, "TPM gate: trusted PP complete\n"));
+  }
   Status = ConfigureTpmPlatformHierarchy ();
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "TPM gate: hierarchy protection failed: %r\n", Status));

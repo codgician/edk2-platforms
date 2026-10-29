@@ -50,11 +50,14 @@ STATIC EFI_STATUS                      mCapStatus;
 STATIC EFI_STATUS                      mConsoleStatus;
 STATIC EFI_STATUS mConnectStatus;
 STATIC BOOLEAN                         mTpmAbsent;
+STATIC BOOLEAN mSkipPp;
+STATIC BOOLEAN mWrongConsolePath;
 STATIC UINTN                           mPpCount;
 STATIC UINTN                           mProtectCount;
 STATIC UINTN                           mDisableCount;
 STATIC UINTN                           mCapCount;
 STATIC UINTN                           mWarnings;
+STATIC UINTN mStatusLines;
 STATIC BOOLEAN                         mStopped;
 STATIC EFI_SIMPLE_TEXT_INPUT_PROTOCOL  mInput;
 STATIC EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL mOutput;
@@ -87,7 +90,7 @@ EfiEventGroupSignal (
 {
   assert_ptr_equal (Guid, &gEfiEndOfDxeEventGroupGuid);
   Trace ('E');
-  assert_int_equal (mPpCount, mTpmAbsent ? 0 : 1);
+  assert_int_equal (mPpCount, (mTpmAbsent || mSkipPp) ? 0 : 1);
   assert_int_equal (mProtectCount, mTpmAbsent ? 0 : 1);
   if (EFI_ERROR (mHierarchyStatus)) {
     assert_int_equal (mDisableCount, 1);
@@ -114,7 +117,7 @@ ConfigureTpmPlatformHierarchy (
   VOID
   )
 {
-  assert_int_equal (mPpCount, 1);
+  assert_int_equal (mPpCount, mSkipPp ? 0 : 1);
   mProtectCount++;
   Trace ('H');
   return mHierarchyStatus;
@@ -202,6 +205,9 @@ LocateDevicePath (
     *Path   = &mSerialConsole.End;
     *Handle = (EFI_HANDLE)(UINTN)2;
   }
+  if (mWrongConsolePath) {
+    *Path = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
+  }
   Trace ('S');
   return EFI_SUCCESS;
 }
@@ -253,6 +259,10 @@ Print (
   ...
   )
 {
+  if (mSkipPp && (mStatusLines == 0)) {
+    mStatusLines++;
+    return 0;
+  }
   mWarnings++;
   Trace ('W');
   return 0;
@@ -265,7 +275,7 @@ EfiBootManagerDispatchDeferredImages (
   )
 {
   Trace ('U');
-  assert_int_equal (mPpCount, mTpmAbsent ? 0 : 1);
+  assert_int_equal (mPpCount, (mTpmAbsent || mSkipPp) ? 0 : 1);
   assert_int_equal (mProtectCount, mTpmAbsent ? 0 : 1);
   longjmp (mStop, 1);
 }
@@ -378,6 +388,7 @@ RunScenario (
   mDisableStatus                  = Disable;
   mCapStatus                      = CapStatus;
   mPpCount                        = mProtectCount = mDisableCount = mCapCount = mWarnings = mTraceSize = 0;
+  mStatusLines = 0;
   mStopped                        = FALSE;
   mTpmBootGateComplete            = FALSE;
   ZeroMem (&mBootServices, sizeof (mBootServices));
@@ -456,11 +467,15 @@ MissingTrustedConsole (
   )
 {
   mConsoleStatus = EFI_NOT_FOUND;
+  mSkipPp = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
-  assert_true (mStopped);
+  assert_false (mStopped);
   assert_int_equal (mPpCount, 0);
-  assert_int_equal (mProtectCount, 0);
+  assert_int_equal (mProtectCount, 1);
+  assert_int_equal (mStatusLines, 1);
+  assert_string_equal (mTrace, "HEU");
   mConsoleStatus = EFI_SUCCESS;
+  mSkipPp = FALSE;
 }
 STATIC VOID
 AlreadyConnectedConsole (
@@ -474,13 +489,53 @@ AlreadyConnectedConsole (
   mConnectStatus = EFI_SUCCESS;
 }
 
+STATIC VOID
+UnresolvableTrustedConsole (
+  VOID **State
+  )
+{
+  mSkipPp = TRUE;
+  mWrongConsolePath = TRUE;
+  RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
+  assert_false (mStopped);
+  assert_int_equal (mPpCount, 0);
+  assert_int_equal (mProtectCount, 1);
+  assert_int_equal (mStatusLines, 1);
+  mWrongConsolePath = FALSE;
+  mSkipPp = FALSE;
+}
+
+STATIC VOID
+MissingConsoleFallbacks (
+  VOID **State
+  )
+{
+  mConsoleStatus = EFI_NOT_FOUND;
+  mSkipPp = TRUE;
+  RunScenario (EFI_DEVICE_ERROR, EFI_SUCCESS, EFI_SUCCESS);
+  assert_false (mStopped);
+  assert_int_equal (mDisableCount, 1);
+  assert_int_equal (mPpCount, 0);
+  assert_int_equal (mStatusLines, 1);
+  RunScenario (EFI_DEVICE_ERROR, EFI_DEVICE_ERROR, EFI_SUCCESS);
+  assert_false (mStopped);
+  assert_int_equal (mCapCount, 8);
+  assert_int_equal (mPpCount, 0);
+  assert_int_equal (mStatusLines, 1);
+  RunScenario (EFI_DEVICE_ERROR, EFI_DEVICE_ERROR, EFI_DEVICE_ERROR);
+  assert_true (mStopped);
+  assert_int_equal (mPpCount, 0);
+  mConsoleStatus = EFI_SUCCESS;
+  mSkipPp = FALSE;
+}
+
 int
 main (
   void
   )
 {
   const struct CMUnitTest Tests[] = {
-    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (MissingTrustedConsole), cmocka_unit_test (AlreadyConnectedConsole)
+    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (MissingTrustedConsole), cmocka_unit_test (AlreadyConnectedConsole), cmocka_unit_test (UnresolvableTrustedConsole), cmocka_unit_test (MissingConsoleFallbacks)
   };
   return cmocka_run_group_tests (Tests, NULL, NULL);
 }
