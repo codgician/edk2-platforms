@@ -897,6 +897,11 @@ PlatformTpmBootGate (
 
   if (!EFI_ERROR (Status)) {
     Status = gBS->ConnectController (Serial, NULL, Remaining, FALSE);
+    // ConnectController returns NOT_FOUND when the terminal was already
+    // started. Exact terminal protocol resolution below is authoritative.
+    if (Status == EFI_NOT_FOUND) {
+      Status = EFI_SUCCESS;
+    }
   }
 
   if (!EFI_ERROR (Status)) {

@@ -48,6 +48,7 @@ STATIC EFI_STATUS                      mHierarchyStatus;
 STATIC EFI_STATUS                      mDisableStatus;
 STATIC EFI_STATUS                      mCapStatus;
 STATIC EFI_STATUS                      mConsoleStatus;
+STATIC EFI_STATUS mConnectStatus;
 STATIC BOOLEAN                         mTpmAbsent;
 STATIC UINTN                           mPpCount;
 STATIC UINTN                           mProtectCount;
@@ -234,7 +235,7 @@ ConnectController (
   assert_ptr_equal (Path, &mSerialConsole.TermType.Header);
   assert_false (Recursive);
   Trace ('S');
-  return EFI_SUCCESS;
+  return mConnectStatus;
 }
 STATIC EFI_STATUS EFIAPI
 Crc (
@@ -461,13 +462,25 @@ MissingTrustedConsole (
   assert_int_equal (mProtectCount, 0);
   mConsoleStatus = EFI_SUCCESS;
 }
+STATIC VOID
+AlreadyConnectedConsole (
+  VOID **State
+  )
+{
+  mConnectStatus = EFI_NOT_FOUND;
+  RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
+  assert_false (mStopped);
+  assert_int_equal (mProtectCount, 1);
+  mConnectStatus = EFI_SUCCESS;
+}
+
 int
 main (
   void
   )
 {
   const struct CMUnitTest Tests[] = {
-    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (MissingTrustedConsole)
+    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (MissingTrustedConsole), cmocka_unit_test (AlreadyConnectedConsole)
   };
   return cmocka_run_group_tests (Tests, NULL, NULL);
 }
