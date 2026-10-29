@@ -1,0 +1,33 @@
+## @file
+#  TPM2 transport to the fTPM trusted application through
+#  FTPM_INIT_PROTOCOL, produced by FTPMDxe.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = FTpmDeviceLib
+  FILE_GUID                      = 9a3e5c71-2b8d-4f0a-a6c4-1d7e3b9f2c58
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = FTpmDeviceLib|DXE_DRIVER
+
+[Sources]
+  FTpmDeviceLib.c
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  Platform/CIX/Sky1/Sky1.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gCixFtpmInitProtocolGuid    ## CONSUMES
+
+[Depex]
+  gCixFtpmInitProtocolGuid

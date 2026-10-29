@@ -1,0 +1,20 @@
+## @file
+#  Null DTpmDeviceLib.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = DTpmDeviceLibNull
+  FILE_GUID                      = 08527975-af51-45c3-8ab4-7a9dd4993c5f
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = DTpmDeviceLib
+
+[Sources]
+  DTpmDeviceLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Platform/CIX/Sky1/Sky1.dec

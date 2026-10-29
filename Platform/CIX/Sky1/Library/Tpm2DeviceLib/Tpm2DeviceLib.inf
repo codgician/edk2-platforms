@@ -40,6 +40,8 @@
   BaseLib
   PcdLib
   UefiBootServicesTableLib
+  # The constructor reads a variable through gRT.
+  UefiRuntimeServicesTableLib
   TimerLib
   DTpmDeviceLib
   FTpmDeviceLib
@@ -47,8 +49,9 @@
 
 [Guids]
   gPlatformSetupVariableGuid
-[Pcd]
-
+[FixedPcd]
+  gCixPlatformTokenSpaceGuid.PcdDTPMSupport
+  gCixPlatformTokenSpaceGuid.PcdFTPMSupport
 
 [Protocols]
 

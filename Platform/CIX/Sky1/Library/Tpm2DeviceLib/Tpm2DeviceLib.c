@@ -60,6 +60,17 @@ Tpm2DeviceLibConstructor (
     }
 
     TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
+
+    //
+    // A selection this firmware cannot serve, e.g. the dTPM default stored
+    // by a build without TPM support, falls back to the built-in device.
+    // Deciding here keeps every module consistent from its first command.
+    //
+    if ((TPMDeviceSelect == DTPM_ENABLE) && !FixedPcdGetBool (PcdDTPMSupport) && FixedPcdGetBool (PcdFTPMSupport)) {
+      TPMDeviceSelect = FTPM_ENABLE;
+    } else if ((TPMDeviceSelect == FTPM_ENABLE) && !FixedPcdGetBool (PcdFTPMSupport) && FixedPcdGetBool (PcdDTPMSupport)) {
+      TPMDeviceSelect = DTPM_ENABLE;
+    }
   }
 
   return Status;
