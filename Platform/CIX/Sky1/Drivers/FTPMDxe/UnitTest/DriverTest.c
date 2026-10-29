@@ -241,14 +241,14 @@ CloseSuccessTwice (
   assert_true (TestCloseSawReadinessRevoked);
   assert_false (TestSessionStillOpen ());
   assert_int_equal (TestLegacyCloses, 0);
-  assert_int_equal (TestFinalizes, 1);
+  assert_int_equal (TestFinalizes, 0);
   assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
   assert_int_equal (TestProtocol->FTPMOpenSession (TestProtocol), EFI_NOT_READY);
   UINT32  Size = 32;
   assert_int_equal (Submit (&Size), EFI_NOT_READY);
   TestExitBootServices ();
   assert_int_equal (TestCheckedCloses, 1);
-  assert_int_equal (TestFinalizes, 1);
+  assert_int_equal (TestFinalizes, 0);
   assert_int_equal (TestVariableWrites, Writes);
 }
 
@@ -282,7 +282,7 @@ OpenFailure (
   assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
   TestExitBootServices ();
   assert_int_equal (TestCheckedCloses, 0);
-  assert_int_equal (TestFinalizes, 1);
+  assert_int_equal (TestFinalizes, 0);
 }
 
 STATIC void
@@ -313,23 +313,10 @@ FinalMeasurementBeforeClose (
   assert_int_equal (TestVariableWrites, 1);
   TestExitBootServices ();
   assert_int_equal (TestCheckedCloses, 1);
-  assert_int_equal (TestFinalizes, 1);
+  assert_int_equal (TestFinalizes, 0);
   assert_int_equal (TestVariableWrites, 1);
 }
 
-STATIC void
-FinalizeFailureTerminal (
-  void  **State
-  )
-{
-  TestFinalizeResult = FALSE;
-  TestExpectTerminalExit ();
-  assert_true (TestHalted);
-  assert_int_equal (TestCheckedCloses, 1);
-  assert_int_equal (TestFinalizes, 1);
-  assert_false (TestSessionStillOpen ());
-  assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
-}
 
 STATIC void
 DiagnosticsBeforeEbs (
@@ -408,7 +395,6 @@ main (
     cmocka_unit_test_setup (OpenFailure,                  Before),
     cmocka_unit_test_setup (EventRegistrationFailure,     Before),
     cmocka_unit_test_setup (FinalMeasurementBeforeClose,  Before),
-    cmocka_unit_test_setup (FinalizeFailureTerminal,      Before),
     cmocka_unit_test_setup (DiagnosticsBeforeEbs,         Before),
     cmocka_unit_test_setup (CapabilityConsumer,           Before)
   };

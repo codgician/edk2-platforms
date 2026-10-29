@@ -13,7 +13,6 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DebugLib.h>
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/DxeServicesTableLib.h>
 #include <Library/PcdLib.h>
 #include <Library/Tpm2DeviceLib.h>
 #include <Library/OpteeClientApiLib.h>

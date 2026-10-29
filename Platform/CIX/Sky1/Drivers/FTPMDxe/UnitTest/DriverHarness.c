@@ -197,6 +197,7 @@ OpteeClientApiFinalize (
   VOID
   )
 {
+  TestRequire (!TestAtEbs);
   TestFinalizes++;
   return TestFinalizeResult;
 }

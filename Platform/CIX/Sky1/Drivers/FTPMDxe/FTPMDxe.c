@@ -334,16 +334,10 @@ OnExitBootServices (
     mSessionOpen = FALSE;
   }
 
-  if (mClientReady) {
-    TEEC_FinalizeContext (&mContext);
-    if (!OpteeClientApiFinalize ()) {
-      DEBUG ((DEBUG_ERROR, "fTPM: EBS client finalization failed; refusing OS handoff\n"));
-      CpuDeadLoop ();
-      return;
-    }
-
-    mClientReady = FALSE;
-  }
+  // The client's ordinary finalizer frees pool memory. EBS has already
+  // validated the memory map: retain inert bookkeeping instead. The OP-TEE
+  // close path must quiesce its preallocated reserved-SHM handoff resources.
+  mClientReady = FALSE;
 }
 
 STATIC
@@ -412,6 +406,11 @@ FtpmDxeEntryPoint (
                                                    );
   if (EFI_ERROR (Status)) {
     OnExitBootServices (NULL, NULL);
+    TEEC_FinalizeContext (&mContext);
+    if (!OpteeClientApiFinalize ()) {
+      DEBUG ((DEBUG_ERROR, "fTPM: DXE error cleanup could not finalize client\n"));
+      CpuDeadLoop ();
+    }
     gBS->CloseEvent (mExitBootServicesEvent);
     if (Event != NULL) {
       gBS->CloseEvent (Event);
