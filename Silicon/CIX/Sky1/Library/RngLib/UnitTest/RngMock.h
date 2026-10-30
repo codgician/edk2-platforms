@@ -15,8 +15,7 @@ typedef struct {
 extern RNG_REPLY gReply;
 extern UINTN gExpectedLength;
 extern UINTN gMailboxCalls;
-extern UINTN gResponseScrubs;
 extern BOOLEAN gCheckSentinel;
 VOID ResetRngMock (UINTN Length);
-VOID CheckRngMock (BOOLEAN ExpectScrub);
+VOID CheckRngMock (VOID);
 #endif

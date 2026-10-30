@@ -22,13 +22,14 @@ STATIC_ASSERT (sizeof (MBOX_TRNG_RESPONSE) == 72, "Mailbox response size");
   Retrieve exactly the entropy needed by a BOOLEAN RngLib entry point.
 
   The public entry points request at most 16 bytes, so each uses one mailbox
-  request (the mailbox permits up to MAX_TRNG_SIZE bytes). Do not publish any
-  output until the entire response has been validated.
+  request (the mailbox permits up to MAX_TRNG_SIZE bytes). A bounded response
+  may contain more than requested; publish only the requested bytes after the
+  entire response has been validated.
 
   @param[out] Buffer  Destination for the random bytes.
   @param[in]  Size    Number of bytes to retrieve, at most MAX_TRNG_SIZE.
 
-  @retval TRUE   The mailbox returned exactly Size random bytes.
+  @retval TRUE   The mailbox returned at least Size random bytes, at most 64.
   @retval FALSE  The mailbox failed or returned an invalid response.
 **/
 STATIC
@@ -42,6 +43,7 @@ GetRandomBytes (
   MBOX_TRNG_RESPONSE   Response;
   EFI_STATUS          Status;
   BOOLEAN             Success;
+  volatile UINT8      *Erase;
 
   ASSERT ((Size != 0) && (Size <= MAX_TRNG_SIZE));
   ZeroMem (&Response, sizeof (Response));
@@ -55,12 +57,23 @@ GetRandomBytes (
   Params.TrngLen  = (UINT32)Size;
   Status         = MboxGetTrng (&Params, &Response);
   Success        = !EFI_ERROR (Status) && (Response.ErrCode == 0) &&
-                   (Response.TrngLen == Size);
+                   (Response.TrngLen >= Size) &&
+                   (Response.TrngLen <= MAX_TRNG_SIZE);
   if (Success) {
     CopyMem (Buffer, Response.Trng, Size);
   }
 
-  ZeroMem (&Response, sizeof (Response));
+  // Volatile writes keep both owned scratch erasures under optimization.
+  Erase = (volatile UINT8 *)&Response;
+  while (Erase < (volatile UINT8 *)(&Response + 1)) {
+    *Erase++ = 0;
+  }
+
+  Erase = (volatile UINT8 *)&Params;
+  while (Erase < (volatile UINT8 *)(&Params + 1)) {
+    *Erase++ = 0;
+  }
+
   return Success;
 }
 

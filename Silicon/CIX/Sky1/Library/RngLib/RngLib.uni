@@ -10,4 +10,4 @@
 
 #string STR_MODULE_ABSTRACT             #language en-US "Instance of RNG Library"
 
-#string STR_MODULE_DESCRIPTION          #language en-US "Mailbox TRNG library. Accepts only successful responses with the exact requested entropy length, rejects stale command-mismatch output, and erases its response scratch."
+#string STR_MODULE_DESCRIPTION          #language en-US "Mailbox TRNG library. Accepts only successful responses covering the requested entropy length up to the 64-byte payload limit, copies only requested bytes, rejects stale command-mismatch output, and erases request/response scratch."

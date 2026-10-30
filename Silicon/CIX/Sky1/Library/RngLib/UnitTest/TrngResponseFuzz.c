@@ -30,7 +30,8 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   memcpy (gReply.Data, Data + 10, Count);
   gCheckSentinel = TRUE;
   Expected = !gReply.Unchanged && !EFI_ERROR (gReply.Status) &&
-             (gReply.Error == 0) && (gReply.Length == Width);
+             (gReply.Error == 0) && (gReply.Length >= Width) &&
+             (gReply.Length <= MAX_TRNG_SIZE);
   memset (Buffer, 0xA5, sizeof (Buffer));
   memcpy (Before, Buffer, sizeof (Buffer));
   switch (Width) {
@@ -45,6 +46,6 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
       (memcmp (&Buffer[1], Expected ? gReply.Data : Before + 8, Width) != 0)) {
     abort ();
   }
-  CheckRngMock (TRUE);
+  CheckRngMock ();
   return 0;
 }
