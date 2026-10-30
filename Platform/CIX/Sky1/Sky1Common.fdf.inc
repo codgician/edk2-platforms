@@ -347,6 +347,7 @@
   # Network Modules
   #
   !include NetworkPkg/Network.fdf.inc
+  INF SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
 !endif
   !if $(SETUP_DEBUG_CFG_ENABLE) == TRUE
     INF Platform/CIX/Sky1/Drivers/DebugConfigDxe/DebugConfigDxe.inf

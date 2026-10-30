@@ -767,6 +767,11 @@
       # ExitBootServices when the OS reboots or powers off.
       ReportStatusCodeLib|MdeModulePkg/Library/RuntimeDxeReportStatusCodeLib/RuntimeDxeReportStatusCodeLib.inf
   }
+!if $(NETWORK_ENABLE) == TRUE
+  # TcpDxe generates initial sequence numbers through Hash2 and depends on
+  # its service binding.
+  SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
+!endif
   EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf
   EmbeddedPkg/MetronomeDxe/MetronomeDxe.inf
 
