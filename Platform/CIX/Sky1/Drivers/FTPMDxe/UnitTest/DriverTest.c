@@ -8,9 +8,17 @@
 #include <cmocka.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "DriverHarness.h"
 #include <IndustryStandard/Tpm20.h>
 #include <Library/Tpm2CommandLib.h>
+
+#define TEST_INSTALL_CAP_OUT_OF_RESOURCES \
+  "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n" \
+  "TPM FTPMDxe: PCRs 0-7 capped, continuing without TPM protocol (Success)\r\n"
+#define TEST_INSTALL_CAP_DEVICE_ERROR \
+  "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Device Error)\r\n" \
+  "TPM FTPMDxe: PCRs 0-7 capped, continuing without TPM protocol (Success)\r\n"
 
 STATIC UINT8  mCommand[TEST_TPM_MAX + 1];
 STATIC UINT8  mOutput[TEST_TPM_MAX + 2];
@@ -283,6 +291,12 @@ CloseFailureReturns (
     assert_int_equal (TestCheckedCloses, 2);
     assert_true (TestSessionStillOpen ());
     assert_int_equal (TestFinalizes, 0);
+    CHAR8  Expected[160];
+    snprintf (Expected, sizeof (Expected), "TPM FTPMDxe: EBS close failed, continuing OS handoff (0x%08X)\r\n", Failures[Index]);
+    CHAR8  Twice[320];
+    snprintf (Twice, sizeof (Twice), "%s%s", Expected, Expected);
+    assert_string_equal (TestSerial, Twice);
+    assert_int_equal (TestConsoleWrites, 0);
     assert_int_equal (TestVariableWrites, Writes);
     TestCloseResult = TEEC_SUCCESS;
     TestExitBootServices ();
@@ -303,19 +317,225 @@ InstallFailureCleanup (
   TestInstallResult = EFI_OUT_OF_RESOURCES;
   assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
   assert_null (TestProtocol);
-  assert_int_equal (TestCheckedCloses, 1);
-  assert_false (TestSessionStillOpen ());
-  assert_int_equal (TestFinalizes, 1);
-  assert_false (TestAtEbs);
-
-  TestReset ();
-  TestInstallResult = EFI_OUT_OF_RESOURCES;
-  TestCloseResult   = TEEC_ERROR_COMMUNICATION;
-  TestExpectDxeTerminalEntry ();
-  assert_true (TestHalted);
-  assert_false (TestAtEbs);
+  assert_int_equal (TestCheckedCloses, 0);
   assert_true (TestSessionStillOpen ());
   assert_int_equal (TestFinalizes, 0);
+  assert_int_equal (TestContextFinalizes, 0);
+  assert_int_equal (TestClosedEvents, 1);
+  assert_int_equal (TestResidentImages, 1);
+  assert_true (TestHandshakeCleared ());
+  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
+  assert_int_equal (TestCapExtends, 8);
+  assert_int_equal (TestInvocations, 9);
+  assert_false (TestPrivateReady ());
+  assert_true (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
+  assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  assert_string_equal (TestSerial, TEST_INSTALL_CAP_OUT_OF_RESOURCES "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
+}
+
+STATIC void
+InstallAndCloseFailureRetainsResident (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCloseResult = TEEC_ERROR_COMMUNICATION;
+  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_false (TestHalted);
+  assert_null (TestProtocol);
+  assert_true (TestSessionStillOpen ());
+  assert_int_equal (TestCheckedCloses, 0);
+  assert_int_equal (TestFinalizes, 0);
+  assert_int_equal (TestContextFinalizes, 0);
+  assert_int_equal (TestClosedEvents, 1);
+  assert_true (TestCallbacksResident ());
+  assert_true (TestHandshakeCleared ());
+  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
+  assert_string_equal (TestSerial,
+    TEST_INSTALL_CAP_OUT_OF_RESOURCES "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
+  assert_int_equal (TestConsoleWrites, 3);
+  TestExitBootServices ();
+  assert_true (TestCloseSawReadinessRevoked);
+  assert_true (TestSessionStillOpen ());
+  assert_int_equal (TestCheckedCloses, 1);
+  assert_string_equal (TestSerial,
+    TEST_INSTALL_CAP_OUT_OF_RESOURCES "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n"
+    "TPM FTPMDxe: EBS close failed, continuing OS handoff (0xFFFF000E)\r\n");
+  TestAtEbs = FALSE;
+  TestCloseResult = TEEC_SUCCESS;
+  TestExitBootServices ();
+  assert_false (TestSessionStillOpen ());
+  assert_int_equal (TestFinalizes, 0);
+}
+
+STATIC void
+InstallAndFinalizeFailureRetainsResident (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_DEVICE_ERROR;
+  TestFinalizeResult = FALSE;
+  assert_int_equal (TestStart (), EFI_DEVICE_ERROR);
+  assert_false (TestHalted);
+  assert_true (TestSessionStillOpen ());
+  assert_int_equal (TestFinalizes, 0);
+  assert_true (TestCallbacksResident ());
+  assert_true (TestHandshakeCleared ());
+  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
+  assert_string_equal (TestSerial,
+    TEST_INSTALL_CAP_DEVICE_ERROR "TPM FTPMDxe: protocol installation failed, TPM unavailable (Device Error)\r\n");
+  TestExitBootServices ();
+  assert_int_equal (TestFinalizes, 0);
+}
+
+STATIC void
+InstallFailureNeverHalts (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCloseResult = TEEC_ERROR_COMMUNICATION;
+  TestCapStoppedEntry ();
+  assert_false (TestHalted);
+  assert_true (TestSessionStillOpen ());
+  assert_false (TestPrivateReady ());
+  assert_int_equal (TestCheckedCloses, 0);
+  assert_true (TestCallbacksResident ());
+}
+
+STATIC void
+InstallFailureCapMalformedExtendStops (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCapMalformedExtend = TRUE;
+  TestCapStoppedEntry ();
+  assert_true (TestHalted);
+  assert_int_equal (TestInvocations, 2);
+  assert_int_equal (TestCapExtends, 1);
+  assert_string_equal (TestSerial,
+    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
+    "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
+}
+
+STATIC void
+InstallFailureCapDiscoveryStops (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCapDiscoveryResult = TEEC_ERROR_COMMUNICATION;
+  TestCapStoppedEntry ();
+  assert_true (TestHalted);
+  assert_int_equal (TestInvocations, 1);
+  assert_int_equal (TestCapExtends, 0);
+  assert_string_equal (TestSerial,
+    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
+    "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
+}
+
+STATIC void
+InstallFailureCapMoreDataStops (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCapMoreData = TRUE;
+  TestCapStoppedEntry ();
+  assert_true (TestHalted);
+  assert_int_equal (TestInvocations, 1);
+  assert_int_equal (TestCapExtends, 0);
+  assert_string_equal (TestSerial,
+    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
+    "TPM FTPMDxe: PCR cap unproven, boot stopped (Compromised Data)\r\n");
+}
+
+STATIC void
+InstallFailureCapMalformedFrameStops (
+  void  **State
+  )
+{
+  TestReset ();
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  TestCapMalformedFrame = TRUE;
+  TestCapStoppedEntry ();
+  assert_true (TestHalted);
+  assert_int_equal (TestInvocations, 1);
+  assert_int_equal (TestCapExtends, 0);
+  assert_string_equal (TestSerial,
+    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
+    "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
+}
+
+STATIC void
+InstallFailureCapExtendStops (
+  void  **State
+  )
+{
+  for (UINTN Pcr = 0; Pcr < 8; Pcr++) {
+    TestReset ();
+    TestInstallResult = EFI_DEVICE_ERROR;
+    TestCapResult = EFI_DEVICE_ERROR;
+    TestCapFailPcr = Pcr;
+    TestCapStoppedEntry ();
+    assert_true (TestHalted);
+    assert_int_equal (TestCapExtends, Pcr + 1);
+    assert_int_equal (TestInvocations, Pcr + 2);
+    assert_string_equal (TestSerial,
+      "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Device Error)\r\n"
+      "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
+  }
+}
+
+STATIC void
+InstallFailureAbsentTaSkipsCap (
+  void  **State
+  )
+{
+  TestReset ();
+  TestOpenResult = TEEC_ERROR_ITEM_NOT_FOUND;
+  TestInstallResult = EFI_OUT_OF_RESOURCES;
+  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_false (TestHalted);
+  assert_null (TestProtocol);
+  assert_false (TestSessionStillOpen ());
+  assert_false (TestPrivateReady ());
+  assert_int_equal (TestInvocations, 0);
+  assert_int_equal (TestCapExtends, 0);
+  assert_true (TestCallbacksResident ());
+  assert_string_equal (TestSerial,
+    "TPM FTPMDxe: session open failed, TPM skipped (0xFFFF0008)\r\n"
+    "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
+  TestExitBootServices ();
+  assert_int_equal (TestCheckedCloses, 0);
+  assert_int_equal (TestFinalizes, 0);
+}
+
+STATIC void
+ResidentLoadFailures (
+  void  **State
+  )
+{
+  TestReset ();
+  TestLoadResult = EFI_OUT_OF_RESOURCES;
+  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_null (TestProtocol);
+  assert_int_equal (TestCheckedCloses, 0);
+  assert_string_equal (TestSerial, "TPM FTPMDxe: resident image load failed, TPM skipped (Out of Resources)\r\n");
+  TestReset ();
+  TestStartResult = EFI_DEVICE_ERROR;
+  assert_int_equal (TestStart (), EFI_DEVICE_ERROR);
+  assert_null (TestProtocol);
+  assert_int_equal (TestCheckedCloses, 0);
+  assert_true (TestHandshakeCleared ());
+  assert_string_equal (TestSerial, "TPM FTPMDxe: resident image start failed, TPM skipped (Device Error)\r\n");
 }
 
 STATIC void
@@ -327,6 +547,7 @@ OpenFailure (
   TestOpenResult = TEEC_ERROR_GENERIC;
   assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
+  assert_string_equal (TestSerial, "TPM FTPMDxe: session open failed, TPM skipped (0xFFFF0000)\r\n");
   TestExitBootServices ();
   assert_int_equal (TestCheckedCloses, 0);
   assert_int_equal (TestFinalizes, 0);
@@ -342,6 +563,34 @@ EventRegistrationFailure (
   assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
   assert_null (TestProtocol);
   assert_int_equal (TestFinalizes, 0);
+  assert_string_equal (TestSerial, "TPM FTPMDxe: EBS callback unavailable, TPM skipped (Out of Resources)\r\n");
+}
+
+STATIC void
+InitializationDiagnostics (
+  void  **State
+  )
+{
+  TestReset ();
+  TestClientResult = EFI_DEVICE_ERROR;
+  assert_int_equal (TestStart (), EFI_SUCCESS);
+  assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
+  assert_string_equal (TestSerial, "TPM FTPMDxe: client unavailable, TPM skipped (Device Error)\r\n");
+  assert_int_equal (TestConsoleWrites, 1);
+  TestReset ();
+  TestWithoutConsole ();
+  TestContextResult = TEEC_ERROR_COMMUNICATION;
+  assert_int_equal (TestStart (), EFI_SUCCESS);
+  assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
+  assert_string_equal (TestSerial, "TPM FTPMDxe: context initialization failed, TPM skipped (0xFFFF000E)\r\n");
+  assert_int_equal (TestConsoleWrites, 0);
+  TestReset ();
+  TestReadyEventResult = EFI_OUT_OF_RESOURCES;
+  assert_int_equal (TestStart (), EFI_SUCCESS);
+  assert_true (TestProtocol->GetFTPMStatus (TestProtocol));
+  assert_string_equal (TestSerial, "TPM FTPMDxe: ReadyToBoot diagnostics skipped (Out of Resources)\r\n");
+  assert_true (TestCallbacksResident ());
+  assert_true (TestHandshakeCleared ());
 }
 
 STATIC void
@@ -382,17 +631,6 @@ DiagnosticsBeforeEbs (
   assert_int_equal (TestVariableWrites, 2);
 }
 
-// Exercise the real downstream consumer; this is the external transport adapter.
-EFI_STATUS EFIAPI
-Tpm2SubmitCommand (
-  UINT32  InSize,
-  UINT8   *Input,
-  UINT32  *OutSize,
-  UINT8   *Output
-  )
-{
-  return TestProtocol->SubmitCommand (TestProtocol, InSize, Input, OutSize, Output);
-}
 
 STATIC void
 CapabilityConsumer (
@@ -440,8 +678,19 @@ main (
     cmocka_unit_test_setup (CloseSuccessTwice,            Before),
     cmocka_unit_test_setup (CloseFailureReturns,          Before),
     cmocka_unit_test_setup (InstallFailureCleanup,        Before),
+    cmocka_unit_test_setup (InstallAndCloseFailureRetainsResident, Before),
+    cmocka_unit_test_setup (InstallAndFinalizeFailureRetainsResident, Before),
+    cmocka_unit_test_setup (ResidentLoadFailures, Before),
+    cmocka_unit_test_setup (InstallFailureCapDiscoveryStops, Before),
+    cmocka_unit_test_setup (InstallFailureCapMoreDataStops, Before),
+    cmocka_unit_test_setup (InstallFailureCapMalformedFrameStops, Before),
+    cmocka_unit_test_setup (InstallFailureCapMalformedExtendStops, Before),
+    cmocka_unit_test_setup (InstallFailureNeverHalts, Before),
+    cmocka_unit_test_setup (InstallFailureCapExtendStops, Before),
+    cmocka_unit_test_setup (InstallFailureAbsentTaSkipsCap, Before),
     cmocka_unit_test_setup (OpenFailure,                  Before),
     cmocka_unit_test_setup (EventRegistrationFailure,     Before),
+    cmocka_unit_test_setup (InitializationDiagnostics,    Before),
     cmocka_unit_test_setup (FinalMeasurementBeforeClose,  Before),
     cmocka_unit_test_setup (DiagnosticsBeforeEbs,         Before),
     cmocka_unit_test_setup (CapabilityConsumer,           Before)

@@ -28,6 +28,8 @@
 [Sources]
   PlatformBm.c
   PlatformBm.h
+  TpmFailureDigest.h
+  TpmBootCap.h
 
 [Packages]
   EmbeddedPkg/EmbeddedPkg.dec
@@ -50,6 +52,7 @@
   MemoryAllocationLib
   PcdLib
   PrintLib
+  SerialPortLib
   UefiBootManagerLib
   UefiBootServicesTableLib
   UefiLib
@@ -57,6 +60,7 @@
   PostCodeLib
   Tcg2PhysicalPresenceLib
   Tpm2CommandLib
+  Tpm2DeviceLib
   TpmPlatformHierarchyLib
 
 [FixedPcd]

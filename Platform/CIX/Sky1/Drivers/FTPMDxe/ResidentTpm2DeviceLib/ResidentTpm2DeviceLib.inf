@@ -1,0 +1,18 @@
+## @file
+#  Private transport for the resident fTPM driver's pre-publication PCR cap.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001B
+  BASE_NAME      = FtpmResidentTpm2DeviceLib
+  FILE_GUID      = 5e688ebb-84d2-48c4-b958-9e7a2c01425e
+  MODULE_TYPE    = DXE_DRIVER
+  LIBRARY_CLASS  = Tpm2DeviceLib|DXE_DRIVER
+
+[Sources]
+  ResidentTpm2DeviceLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec

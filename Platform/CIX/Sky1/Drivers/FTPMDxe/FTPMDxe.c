@@ -19,12 +19,18 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/OpteeClientApiLib.h>
+#include <Library/DevicePathLib.h>
 #include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/tee_client_api.h>
 #include <Protocol/FTPMInitProtocol.h>
+#include <Protocol/LoadedImage.h>
+#include "../../Library/OpteeClientApiLib/OpteeClientDiagnostics.h"
+#include <Library/Tpm2CommandLib.h>
+#include "../../Library/PlatformBootManagerLib/TpmBootCap.h"
 
 //
 // fTPM TA command: [in] memref[0] TPM command, [in/out] memref[1] response.
@@ -58,6 +64,37 @@ STATIC UINT32       mCommands;
 STATIC UINT32       mFailures;
 STATIC TEEC_Result  mLastFailure;
 STATIC UINT32       mLastFailureOrigin;
+
+/** Emit status-only diagnostics without allocation, including at EBS. **/
+STATIC
+VOID
+ReportDecision (
+  IN CONST CHAR8  *Decision,
+  IN UINTN        Status,
+  IN BOOLEAN      TeecStatus,
+  IN BOOLEAN      SerialOnly
+  )
+{
+  CHAR8   Text[192];
+  CHAR16  ConsoleText[192];
+  UINTN   Length;
+  UINTN   Index;
+
+  if (TeecStatus) {
+    Length = AsciiSPrint (Text, sizeof (Text), "TPM FTPMDxe: %a (0x%08x)\r\n", Decision, (UINT32)Status);
+  } else {
+    Length = AsciiSPrint (Text, sizeof (Text), "TPM FTPMDxe: %a (%r)\r\n", Decision, Status);
+  }
+
+  SerialPortWrite ((UINT8 *)Text, Length);
+  if (!SerialOnly && (gST != NULL) && (gST->ConOut != NULL)) {
+    for (Index = 0; Index <= Length; Index++) {
+      ConsoleText[Index] = (CHAR16)(UINT8)Text[Index];
+    }
+
+    gST->ConOut->OutputString (gST->ConOut, ConsoleText);
+  }
+}
 
 /**
   Erase owned authorization-bearing copies even under link-time optimization.
@@ -137,6 +174,7 @@ FtpmOpenSession (
                                   );
   if (mOpenResult != TEEC_SUCCESS) {
     DEBUG ((DEBUG_ERROR, "fTPM: opening TA session failed: 0x%x (origin %u)\n", mOpenResult, mOpenOrigin));
+    ReportDecision ("session open failed, TPM skipped", mOpenResult, TRUE, FALSE);
     return EFI_DEVICE_ERROR;
   }
 
@@ -304,6 +342,28 @@ STATIC FTPM_INIT_PROTOCOL  mFtpmProtocol = {
   FtpmSubmitCommand
 };
 
+/** Private transport used only by this module's pre-publication cap. **/
+EFI_STATUS
+EFIAPI
+FtpmResidentSubmitCommand (
+  IN UINT32      InputSize,
+  IN UINT8       *Input,
+  IN OUT UINT32  *OutputSize,
+  OUT UINT8      *Output
+  )
+{
+  return FtpmSubmitCommand (&mFtpmProtocol, InputSize, Input, OutputSize, Output);
+}
+
+BOOLEAN
+EFIAPI
+FtpmResidentReady (
+  VOID
+  )
+{
+  return FtpmGetStatus (&mFtpmProtocol);
+}
+
 /**
   Runs at TPL_CALLBACK, after Tcg2Dxe's TPL_NOTIFY final measurements.
   Preserve failed-close ownership but allow OS handoff: the OS may boot
@@ -318,6 +378,7 @@ OnExitBootServices (
   )
 {
   TEEC_Result  Result;
+  OpteeClientApiExitBootServices ();
 
   mHandoffStarted = TRUE;
   mSessionUsable  = FALSE;
@@ -325,7 +386,7 @@ OnExitBootServices (
     // The client uses static SHM and allocation records reserved at init.
     Result = OpteeClientCloseSession (&mSession);
     if (Result != TEEC_SUCCESS) {
-      DEBUG ((DEBUG_ERROR, "fTPM: EBS close failed: 0x%x; continuing OS handoff\n", Result));
+      ReportDecision ("EBS close failed, continuing OS handoff", Result, TRUE, TRUE);
       return;
     }
 
@@ -349,16 +410,17 @@ OnReadyToBoot (
   PublishStatus ();
 }
 
+STATIC
 EFI_STATUS
-EFIAPI
-FtpmDxeEntryPoint (
-  IN EFI_HANDLE        ImageHandle,
-  IN EFI_SYSTEM_TABLE  *SystemTable
+StartResidentDriver (
+  IN EFI_HANDLE  ImageHandle
   )
 {
-  EFI_STATUS  Status;
-  EFI_HANDLE  Handle;
-  EFI_EVENT   Event;
+  EFI_STATUS   Status;
+  EFI_HANDLE   Handle;
+  EFI_EVENT    Event;
+  TEEC_Result  Result;
+  EFI_STATUS   CapStatus;
 
   // Never open the single-session TA without an installed handoff handler.
   Status = gBS->CreateEventEx (
@@ -370,15 +432,21 @@ FtpmDxeEntryPoint (
                                &mExitBootServicesEvent
                                );
   if (EFI_ERROR (Status)) {
+    ReportDecision ("EBS callback unavailable, TPM skipped", Status, FALSE, FALSE);
     return Status;
   }
 
   mClientStatus = OpteeClientApiInitialize (ImageHandle);
-  if (!EFI_ERROR (mClientStatus) && (TEEC_InitializeContext (NULL, &mContext) == TEEC_SUCCESS)) {
-    mClientReady = TRUE;
-    FtpmOpenSession (&mFtpmProtocol);
+  if (!EFI_ERROR (mClientStatus)) {
+    Result = TEEC_InitializeContext (NULL, &mContext);
+    if (Result == TEEC_SUCCESS) {
+      mClientReady = TRUE;
+      FtpmOpenSession (&mFtpmProtocol);
+    } else {
+      ReportDecision ("context initialization failed, TPM skipped", Result, TRUE, FALSE);
+    }
   } else {
-    DEBUG ((DEBUG_ERROR, "fTPM: OP-TEE client unavailable: %r\n", mClientStatus));
+    ReportDecision ("client unavailable, TPM skipped", mClientStatus, FALSE, FALSE);
   }
 
   PublishStatus ();
@@ -387,14 +455,12 @@ FtpmDxeEntryPoint (
   Event  = NULL;
   Status = EfiCreateEventReadyToBootEx (TPL_CALLBACK, OnReadyToBoot, NULL, &Event);
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "fTPM: cannot refresh ReadyToBoot diagnostics: %r\n", Status));
+    ReportDecision ("ReadyToBoot diagnostics skipped", Status, FALSE, FALSE);
   }
 
-  //
-  // Install unconditionally: every user of FTpmDeviceLib depends on this
-  // protocol, including boot-critical drivers. A missing fTPM is reported
-  // through GetFTPMStatus instead.
-  //
+  // Publish unavailable status for consumers whose DXE depex uses the vendor
+  // FTpmDeviceLib. BDS uses OptionalFtpmDeviceLib and must not wait for this
+  // protocol: publication itself can fail after a live TPM was detected.
   Handle = NULL;
   Status = gBS->InstallMultipleProtocolInterfaces (
                                                    &Handle,
@@ -403,17 +469,152 @@ FtpmDxeEntryPoint (
                                                    NULL
                                                    );
   if (EFI_ERROR (Status)) {
-    OnExitBootServices (NULL, NULL);
-    TEEC_FinalizeContext (&mContext);
-    if (mSessionOpen || !OpteeClientApiFinalize ()) {
-      DEBUG ((DEBUG_ERROR, "fTPM: DXE error cleanup could not close/finalize client\n"));
-      CpuDeadLoop ();
+    if (mSessionOpen && mSessionUsable) {
+      ReportDecision ("protocol installation failed, capping PCRs 0-7", Status, FALSE, FALSE);
+      CapStatus = PlatformTpmCapPcrs ();
+      if (EFI_ERROR (CapStatus)) {
+        ReportDecision ("PCR cap unproven, boot stopped", CapStatus, FALSE, FALSE);
+        for (;;) {
+          CpuDeadLoop ();
+        }
+      }
+
+      ReportDecision ("PCRs 0-7 capped, continuing without TPM protocol", EFI_SUCCESS, FALSE, FALSE);
     }
-    gBS->CloseEvent (mExitBootServicesEvent);
+    // The resident image owns the live session, client records and EBS code.
+    // Do not finalize: an unconfirmed close/cache drain cannot release SHM.
+    mSessionUsable  = FALSE;
+    mClientReady    = FALSE;
+    mHandoffStarted = TRUE;
     if (Event != NULL) {
       gBS->CloseEvent (Event);
     }
+
+    ReportDecision ("protocol installation failed, TPM unavailable", Status, FALSE, FALSE);
   }
 
   return Status;
+}
+
+typedef struct {
+  EFI_HANDLE  Parent;
+  EFI_HANDLE  Child;
+  EFI_STATUS  Status;
+  BOOLEAN     Completed;
+} FTPM_RESIDENT_START;
+
+/**
+  Start a separate resident copy before creating callbacks or owning SHM.
+
+  DXE Core's CoreStartImage (Image.c) marks the image started before entry
+  and unloads drivers only on an entry error (lines 1703-1704, 1790-1791).
+  CoreUnloadImage rejects a started driver with NULL Unload (1935-1942).
+  The outer image therefore owns no client resources. Its child always
+  returns success and retains callbacks/SHM even if publication failed;
+  only the synchronous private handshake returns that error to dispatch.
+**/
+EFI_STATUS
+EFIAPI
+FtpmDxeEntryPoint (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  EFI_LOADED_IMAGE_PROTOCOL  *Image;
+  EFI_LOADED_IMAGE_PROTOCOL  *Parent;
+  EFI_LOADED_IMAGE_PROTOCOL  *Child;
+  EFI_DEVICE_PATH_PROTOCOL   *Path;
+  EFI_DEVICE_PATH_PROTOCOL   *ParentPath;
+  FTPM_RESIDENT_START         Start;
+  FTPM_RESIDENT_START         *Request;
+  EFI_HANDLE                 ChildHandle;
+  EFI_STATUS                 Status;
+  VOID                       *SavedOptions;
+  UINT32                     SavedOptionsSize;
+  UINTN                      PathSize;
+
+  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Image);
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("image identity unavailable, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageDevicePathProtocolGuid, (VOID **)&Path);
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("image path unavailable, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
+  // A resident request must be shared with the actual same-path parent.
+  // An arbitrary LoadOptions flag alone must not select the resident branch.
+  if ((Image->LoadOptionsSize == sizeof (Start)) && (Image->LoadOptions != NULL) &&
+      (Image->ParentHandle != NULL) &&
+      !EFI_ERROR (gBS->HandleProtocol (Image->ParentHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Parent)) &&
+      (Parent->LoadOptions == Image->LoadOptions) &&
+      (Parent->LoadOptionsSize == sizeof (Start)) &&
+      !EFI_ERROR (gBS->HandleProtocol (Image->ParentHandle, &gEfiLoadedImageDevicePathProtocolGuid, (VOID **)&ParentPath)))
+  {
+    PathSize = GetDevicePathSize (Path);
+    if ((PathSize == GetDevicePathSize (ParentPath)) &&
+        (CompareMem (Path, ParentPath, PathSize) == 0))
+    {
+      Request = Image->LoadOptions;
+      if ((Request->Parent == Image->ParentHandle) && (Request->Child == ImageHandle) && !Request->Completed) {
+        Image->LoadOptions = NULL;
+        Image->LoadOptionsSize = 0;
+        Image->Unload = NULL;
+        Request->Status = StartResidentDriver (ImageHandle);
+        Request->Completed = TRUE;
+        return EFI_SUCCESS;
+      }
+    }
+  }
+
+  Status = gBS->LoadImage (FALSE, ImageHandle, Path, NULL, 0, &ChildHandle);
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("resident image load failed, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
+  Status = gBS->HandleProtocol (ChildHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Child);
+  if (EFI_ERROR (Status)) {
+    gBS->UnloadImage (ChildHandle);
+    ReportDecision ("resident image identity unavailable, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
+  ZeroMem (&Start, sizeof (Start));
+  Start.Parent = ImageHandle;
+  Start.Child = ChildHandle;
+  Start.Status = EFI_DEVICE_ERROR;
+  SavedOptions = Image->LoadOptions;
+  SavedOptionsSize = Image->LoadOptionsSize;
+  Image->LoadOptions = &Start;
+  Image->LoadOptionsSize = sizeof (Start);
+  Child->LoadOptions = &Start;
+  Child->LoadOptionsSize = sizeof (Start);
+  Status = gBS->StartImage (ChildHandle, NULL, NULL);
+  Image->LoadOptions = SavedOptions;
+  Image->LoadOptionsSize = SavedOptionsSize;
+  // Entry-point errors unload the child, but pre-entry failures may not.
+  // Reacquire its protocol rather than touching a possibly freed pointer.
+  if (EFI_ERROR (Status)) {
+    if (!EFI_ERROR (gBS->HandleProtocol (ChildHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Child))) {
+      Child->LoadOptions = NULL;
+      Child->LoadOptionsSize = 0;
+      gBS->UnloadImage (ChildHandle);
+    }
+
+    ReportDecision ("resident image start failed, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
+  Child->LoadOptions = NULL;
+  Child->LoadOptionsSize = 0;
+  if (!Start.Completed) {
+    ReportDecision ("resident initialization unavailable, TPM skipped", EFI_DEVICE_ERROR, FALSE, FALSE);
+    return EFI_DEVICE_ERROR;
+  }
+
+  return Start.Status;
 }

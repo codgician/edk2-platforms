@@ -985,7 +985,16 @@
   # Bds
   #
   MdeModulePkg/Universal/BootManagerPolicyDxe/BootManagerPolicyDxe.inf
-  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf
+  MdeModulePkg/Universal/BdsDxe/BdsDxe.inf {
+    <LibraryClasses>
+!if $(FTPM_SUPPORT) == TRUE
+      # BDS must still run after the producer returns a publication error.
+      FTpmDeviceLib|Platform/CIX/Sky1/Drivers/FTPMDxe/ResidentTpm2DeviceLib/OptionalFtpmDeviceLib.inf
+!endif
+    <PcdsFixedAtBuild>
+      # TPM diagnostics must match SerialDxe, not the vendor DEBUG UART.
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
+  }
   MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf
   MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
@@ -1075,8 +1084,17 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
 !endif
 
 !if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
-  Platform/CIX/Sky1/Drivers/FTPMDxe/FTPMProtocol.inf
-  Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf
+  Platform/CIX/Sky1/Drivers/FTPMDxe/FTPMProtocol.inf {
+    <LibraryClasses>
+      # Installation-error capping must not depend on the unpublished protocol.
+      Tpm2DeviceLib|Platform/CIX/Sky1/Drivers/FTPMDxe/ResidentTpm2DeviceLib/ResidentTpm2DeviceLib.inf
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
+  }
+  Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf {
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
+  }
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
       HashLib|SecurityPkg/Library/HashLibBaseCryptoRouter/HashLibBaseCryptoRouterDxe.inf
@@ -1085,6 +1103,8 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
       NULL|SecurityPkg/Library/HashInstanceLibSha1/HashInstanceLibSha1.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha256/HashInstanceLibSha256.inf
       NULL|SecurityPkg/Library/HashInstanceLibSha384/HashInstanceLibSha384.inf
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
   Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf
 !endif

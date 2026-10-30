@@ -1,0 +1,29 @@
+## @file
+#  Reuse the NULL-safe fTPM transport without making BDS depend on publication.
+#  Tcg2Dxe retains the ordinary transport's dispatch dependency.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = OptionalFtpmDeviceLib
+  FILE_GUID                      = b8036057-5395-43a8-815a-f4eec2e690eb
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = FTpmDeviceLib|DXE_DRIVER
+
+[Sources]
+  ../../../Library/FTpmDeviceLib/FTpmDeviceLib.c
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  Platform/CIX/Sky1/Sky1.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+
+[Protocols]
+  gCixFtpmInitProtocolGuid    ## CONSUMES

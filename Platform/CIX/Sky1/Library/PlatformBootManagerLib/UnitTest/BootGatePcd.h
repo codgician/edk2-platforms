@@ -13,3 +13,5 @@
 #define _PCD_SET_MODE_32_S_PcdBootDiscoveryPolicy(Value) EFI_SUCCESS
 #define _PCD_GET_MODE_PTR_PcdFirmwareVersionString L"test"
 #define _PCD_GET_MODE_16_PcdPlatformBootTimeOut 0
+#define _PCD_GET_MODE_32_PcdMaximumUnicodeStringLength 0
+#define _PCD_GET_MODE_32_PcdMaximumAsciiStringLength 0

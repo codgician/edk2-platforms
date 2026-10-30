@@ -15,6 +15,9 @@
 
 [Sources]
   FTPMDxe.c
+  ../../Library/PlatformBootManagerLib/TpmBootCap.h
+  ../../Library/PlatformBootManagerLib/TpmFailureDigest.h
+  ../../Library/OpteeClientApiLib/OpteeClientDiagnostics.h
 
 [Packages]
   MdeModulePkg/MdeModulePkg.dec
@@ -26,8 +29,12 @@
   BaseLib
   BaseMemoryLib
   DebugLib
+  DevicePathLib
   OpteeClientApiLib
   PrintLib
+  SerialPortLib
+  Tpm2CommandLib
+  Tpm2DeviceLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiLib
@@ -39,6 +46,8 @@
 
 [Protocols]
   gCixFtpmInitProtocolGuid         ## PRODUCES
+  gEfiLoadedImageProtocolGuid           ## CONSUMES
+  gEfiLoadedImageDevicePathProtocolGuid ## CONSUMES
 
 [Depex]
   # Diagnostics use the variable service only before ExitBootServices.

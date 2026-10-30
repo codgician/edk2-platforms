@@ -39,10 +39,13 @@
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Library/Tpm2CommandLib.h>
 #include <Library/TpmPlatformHierarchyLib.h>
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Protocol/SerialIo.h>
 #include <Protocol/Tcg2Protocol.h>
 #include <PlatformSetupVar.h>
 #include "PlatformBm.h"
+#include "TpmBootCap.h"
 
 #define DP_NODE_LEN(Type)  { (UINT8)sizeof (Type), (UINT8)(sizeof (Type) >> 8) }
 
@@ -812,6 +815,30 @@ RegisterIsoDebianBootOption (
 
 STATIC BOOLEAN  mTpmBootGateComplete;
 
+/** Emit a RELEASE-visible, non-secret decision before changing boot policy. **/
+STATIC
+VOID
+PlatformTpmStatus (
+  IN CONST CHAR8  *Message,
+  IN EFI_STATUS   Status
+  )
+{
+  CHAR8   Text[192];
+  CHAR16  Console[192];
+  UINTN   Length;
+  UINTN   Index;
+
+  Length = AsciiSPrint (Text, sizeof (Text), "TPM BootGate: %a (%r)\r\n", Message, Status);
+  SerialPortWrite ((UINT8 *)Text, Length);
+  if ((gST != NULL) && (gST->ConOut != NULL)) {
+    for (Index = 0; Index <= Length; Index++) {
+      Console[Index] = (CHAR16)Text[Index];
+    }
+
+    gST->ConOut->OutputString (gST->ConOut, Console);
+  }
+}
+
 /** Stop rather than release control with unproven TPM/PCR state. **/
 STATIC
 NORETURN
@@ -823,6 +850,24 @@ PlatformTpmBootStop (
   for (;;) {
     CpuDeadLoop ();
   }
+}
+
+STATIC
+VOID
+PlatformTpmCapOrStop (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = PlatformTpmCapPcrs ();
+  if (EFI_ERROR (Status)) {
+    PlatformTpmStatus ("PCR cap failed, boot stopped", Status);
+    PlatformTpmBootStop ();
+  }
+
+  PlatformTpmStatus ("PCRs 0-7 capped, continuing", EFI_SUCCESS);
+  mTpmBootGateComplete = TRUE;
 }
 
 /**
@@ -853,13 +898,6 @@ PlatformTpmBootGate (
   EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *Output;
   EFI_SIMPLE_TEXT_INPUT_PROTOCOL   *SavedInput;
   EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *SavedOutput;
-  UINT32                           ErrorSeparator;
-  UINT32                           Pcr;
-  struct {
-    UINT32                 Size;
-    EFI_TCG2_EVENT_HEADER  Header;
-    UINT8                  Data[sizeof (UINT32)];
-  } Event;
 
   if (mTpmBootGateComplete) {
     return;
@@ -868,22 +906,28 @@ PlatformTpmBootGate (
   Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
   if (Status == EFI_NOT_FOUND) {
     // No TPM from the start: there is no TPM-backed secret to release.
+    PlatformTpmStatus ("TPM absent, continuing", Status);
     mTpmBootGateComplete = TRUE;
     return;
   }
 
   if (EFI_ERROR (Status)) {
-    PlatformTpmBootStop ();
+    PlatformTpmStatus ("Tcg2 lookup failed, attempting PCR cap", Status);
+    PlatformTpmCapOrStop ();
+    return;
   }
 
   ZeroMem (&Capability, sizeof (Capability));
   Capability.Size = sizeof (Capability);
   Status = Tcg2->GetCapability (Tcg2, &Capability);
   if (EFI_ERROR (Status)) {
-    PlatformTpmBootStop ();
+    PlatformTpmStatus ("Tcg2 capability failed, attempting PCR cap", Status);
+    PlatformTpmCapOrStop ();
+    return;
   }
 
   if (!Capability.TPMPresentFlag) {
+    PlatformTpmStatus ("TPM absent, continuing", EFI_NOT_FOUND);
     mTpmBootGateComplete = TRUE;
     return;
   }
@@ -934,8 +978,7 @@ PlatformTpmBootGate (
   SavedOutput       = gST->ConOut;
   if (EFI_ERROR (Status)) {
     // Leave requests pending: only a trusted console may confirm them.
-    DEBUG ((DEBUG_WARN, "TPM gate: trusted serial console unavailable (%r); PP skipped, requests remain pending\n", Status));
-    Print (L"TPM gate: trusted serial console unavailable; PP skipped, requests remain pending.\n");
+    PlatformTpmStatus ("PP skipped (no trusted console)", Status);
   } else {
     gST->ConsoleInHandle  = InputHandle;
     gST->ConsoleOutHandle = OutputHandle;
@@ -949,41 +992,19 @@ PlatformTpmBootGate (
   }
   Status = ConfigureTpmPlatformHierarchy ();
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "TPM gate: hierarchy protection failed: %r\n", Status));
+    PlatformTpmStatus ("hierarchy protection failed, trying disable", Status);
     Status = Tpm2HierarchyControl (TPM_RH_PLATFORM, NULL, TPM_RH_PLATFORM, NO);
     if (EFI_ERROR (Status)) {
-      // A damaged measurement path must not be used to manufacture a cap.
-      // Tcg2Dxe recognizes this error separator and caps every active bank
-      // directly, without depending on HashLib or available log space.
-      ErrorSeparator = 1;
-      ZeroMem (&Event, sizeof (Event));
-      Event.Size                 = sizeof (UINT32) + sizeof (Event.Header) + sizeof (Event.Data);
-      Event.Header.HeaderSize    = sizeof (Event.Header);
-      Event.Header.HeaderVersion = EFI_TCG2_EVENT_HEADER_VERSION;
-      Event.Header.EventType     = EV_SEPARATOR;
-      CopyMem (Event.Data, &ErrorSeparator, sizeof (ErrorSeparator));
-      for (Pcr = 0; Pcr < 8; Pcr++) {
-        Event.Header.PCRIndex = Pcr;
-        Status = Tcg2->HashLogExtendEvent (
-                         Tcg2,
-                         EFI_TCG2_EXTEND_ONLY,
-                         (EFI_PHYSICAL_ADDRESS)(UINTN)&ErrorSeparator,
-                         sizeof (ErrorSeparator),
-                         (EFI_TCG2_EVENT *)&Event
-                         );
-        if (EFI_ERROR (Status)) {
-          Print (L"WARNING: TPM protection and PCR capping failed. Boot stopped.\n");
-          PlatformTpmBootStop ();
-        }
-      }
-
-      Print (L"WARNING: TPM platform hierarchy protection failed. PCRs 0-7 capped; TPM-sealed boot secrets unavailable.\n");
-      DEBUG ((DEBUG_ERROR, "TPM gate: degraded boot, PCRs 0-7 capped\n"));
+      PlatformTpmStatus ("hierarchy disable failed, attempting PCR cap", Status);
     } else {
-      DEBUG ((DEBUG_INFO, "TPM gate: platform hierarchy disabled\n"));
+      PlatformTpmStatus ("platform hierarchy disabled", EFI_SUCCESS);
     }
+
+    // Disabling protects platform authorization, but a hierarchy failure
+    // still requires an unrecoverable PCR chain under recovery-boot policy.
+    PlatformTpmCapOrStop ();
   } else {
-    DEBUG ((DEBUG_INFO, "TPM gate: platform hierarchy protected\n"));
+    PlatformTpmStatus ("platform hierarchy protected", EFI_SUCCESS);
   }
 
   gST->ConsoleInHandle  = SavedInputHandle;

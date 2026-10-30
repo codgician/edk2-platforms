@@ -42,6 +42,53 @@ extern UINT8               *TestSavedCommand;
 extern UINT8               *TestSavedResponse;
 extern UINTN               TestSavedCommandSize;
 extern UINTN               TestSavedResponseSize;
+extern CHAR8               TestSerial[4096];
+extern UINTN               TestConsoleWrites;
+extern EFI_STATUS          TestClientResult;
+extern TEEC_Result         TestContextResult;
+extern EFI_STATUS          TestReadyEventResult;
+extern EFI_STATUS          TestLoadResult;
+extern EFI_STATUS          TestStartResult;
+extern UINTN               TestResidentImages;
+extern UINTN               TestClosedEvents;
+extern UINTN               TestContextFinalizes;
+extern UINTN               TestCapExtends;
+extern EFI_STATUS          TestCapResult;
+extern TEEC_Result         TestCapDiscoveryResult;
+extern BOOLEAN             TestCapMalformedFrame;
+extern BOOLEAN             TestCapMalformedExtend;
+extern BOOLEAN             TestCapMoreData;
+extern UINTN               TestCapFailPcr;
+
+BOOLEAN
+TestPrivateReady (
+  VOID
+  );
+
+VOID
+TestCapStoppedEntry (
+  VOID
+  );
+
+VOID
+TestWithoutConsole (
+  VOID
+  );
+
+BOOLEAN
+TestCallbacksResident (
+  VOID
+  );
+
+BOOLEAN
+TestHandshakeCleared (
+  VOID
+  );
+
+EFI_STATUS
+TestUnloadResident (
+  VOID
+  );
 
 VOID
 TestReset (
@@ -50,11 +97,6 @@ TestReset (
 
 EFI_STATUS
 TestStart (
-  VOID
-  );
-
-VOID
-TestExpectDxeTerminalEntry (
   VOID
   );
 
