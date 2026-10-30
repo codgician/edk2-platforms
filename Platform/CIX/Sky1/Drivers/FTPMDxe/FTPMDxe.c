@@ -47,6 +47,7 @@ STATIC TEEC_Context  mContext;
 STATIC TEEC_Session  mSession;
 STATIC BOOLEAN       mClientReady;
 STATIC BOOLEAN       mSessionOpen;
+STATIC EFI_EVENT     mBeforeExitBootServicesEvent;
 STATIC EFI_EVENT     mExitBootServicesEvent;
 STATIC BOOLEAN       mSessionUsable;
 STATIC BOOLEAN       mHandoffStarted;
@@ -365,6 +366,22 @@ FtpmResidentReady (
 }
 
 /**
+  Runs before DXE Core accepts the OS memory-map key, so before Tcg2Dxe's
+  TPL_NOTIFY final measurements submit through this transport. Console
+  output allocates pool; keep client diagnostics on the serial port only.
+**/
+STATIC
+VOID
+EFIAPI
+OnBeforeExitBootServices (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  OpteeClientApiExitBootServices ();
+}
+
+/**
   Runs at TPL_CALLBACK, after Tcg2Dxe's TPL_NOTIFY final measurements.
   Preserve failed-close ownership but allow OS handoff: the OS may boot
   without a TPM if it cannot open the single-session TA. No variable calls.
@@ -378,7 +395,6 @@ OnExitBootServices (
   )
 {
   TEEC_Result  Result;
-  OpteeClientApiExitBootServices ();
 
   mHandoffStarted = TRUE;
   mSessionUsable  = FALSE;
@@ -422,7 +438,20 @@ StartResidentDriver (
   TEEC_Result  Result;
   EFI_STATUS   CapStatus;
 
-  // Never open the single-session TA without an installed handoff handler.
+  // Never open the single-session TA without installed handoff handlers.
+  Status = gBS->CreateEventEx (
+                               EVT_NOTIFY_SIGNAL,
+                               TPL_CALLBACK,
+                               OnBeforeExitBootServices,
+                               NULL,
+                               &gEfiEventBeforeExitBootServicesGuid,
+                               &mBeforeExitBootServicesEvent
+                               );
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("EBS callback unavailable, TPM skipped", Status, FALSE, FALSE);
+    return Status;
+  }
+
   Status = gBS->CreateEventEx (
                                EVT_NOTIFY_SIGNAL,
                                TPL_CALLBACK,
@@ -432,6 +461,7 @@ StartResidentDriver (
                                &mExitBootServicesEvent
                                );
   if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mBeforeExitBootServicesEvent);
     ReportDecision ("EBS callback unavailable, TPM skipped", Status, FALSE, FALSE);
     return Status;
   }

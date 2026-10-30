@@ -41,6 +41,7 @@
   UefiRuntimeServicesTableLib
 
 [Guids]
+  gEfiEventBeforeExitBootServicesGuid  ## CONSUMES ## Event
   gEfiEventExitBootServicesGuid    ## CONSUMES ## Event
   gOpteeFtpmTaGuid                 ## CONSUMES
 

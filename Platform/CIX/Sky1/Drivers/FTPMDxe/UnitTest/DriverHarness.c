@@ -19,6 +19,7 @@
 
 EFI_GUID                     gOpteeFtpmTaGuid;
 EFI_GUID                     gCixFtpmInitProtocolGuid = CIX_FTPM_INIT_PROTOCOL_GUID;
+EFI_GUID                     gEfiEventBeforeExitBootServicesGuid;
 EFI_GUID                     gEfiEventExitBootServicesGuid;
 EFI_GUID                     gEfiLoadedImageProtocolGuid;
 EFI_GUID                     gEfiLoadedImageDevicePathProtocolGuid;
@@ -75,6 +76,9 @@ BOOLEAN                  TestCloseSawReadinessRevoked;
 UINT32                   TestLastDiagnosticCommands;
 UINT32                   TestLastDiagnosticFailures;
 EFI_STATUS               TestEventResult;
+UINTN                    TestEventFailCall;
+UINTN                    TestEventCalls;
+BOOLEAN                  TestSerialOnly;
 UINTN                    TestInvocations;
 EFI_STATUS               TestInstallResult;
 UINTN                    TestCheckedCloses;
@@ -92,6 +96,9 @@ UINT8                    *TestSavedResponse;
 UINTN                    TestSavedCommandSize;
 UINTN                    TestSavedResponseSize;
 STATIC EFI_EVENT_NOTIFY  mEbsCallback;
+STATIC EFI_EVENT_NOTIFY  mBeforeEbsCallback;
+STATIC BOOLEAN           mBeforeEbsResident;
+STATIC BOOLEAN           mBeforeEbsSignaled;
 
 VOID
 TestRequire (
@@ -164,14 +171,28 @@ MockCreateEventEx (
   EFI_EVENT         *Event
   )
 {
+  EFI_STATUS  Status;
+
   TestRequire (!TestAtEbs && Tpl == TPL_CALLBACK && Type == EVT_NOTIFY_SIGNAL);
-  TestRequire (Group == &gEfiEventExitBootServicesGuid);
+  TestRequire (Group == &gEfiEventBeforeExitBootServicesGuid || Group == &gEfiEventExitBootServicesGuid);
+  TestEventCalls++;
+  Status = ((TestEventFailCall == 0) || (TestEventFailCall == TestEventCalls)) ? TestEventResult : EFI_SUCCESS;
+  if (Group == &gEfiEventBeforeExitBootServicesGuid) {
+    mBeforeEbsResident = mInsideChild;
+    if (!EFI_ERROR (Status)) {
+      mBeforeEbsCallback = Notify;
+      *Event             = (EFI_EVENT)(UINTN)3;
+    }
+
+    return Status;
+  }
+
   mEbsResident = mInsideChild;
-  if (!EFI_ERROR (TestEventResult)) {
+  if (!EFI_ERROR (Status)) {
     mEbsCallback = Notify;
     *Event       = (EFI_EVENT)(UINTN)1;
   }
-  return TestEventResult;
+  return Status;
 }
 
 STATIC EFI_STATUS EFIAPI
@@ -183,6 +204,8 @@ MockCloseEvent (
   TestClosedEvents++;
   if ((UINTN)Event == 1) {
     mEbsCallback = NULL;
+  } else if ((UINTN)Event == 3) {
+    mBeforeEbsCallback = NULL;
   } else {
     TestRequire ((UINTN)Event == 2);
     mReadyCallback = NULL;
@@ -573,7 +596,7 @@ MockStartImage (EFI_HANDLE Handle, UINTN *Size, CHAR16 **Data)
   if (!EFI_ERROR (Status)) {
     TestResidentImages++;
   } else {
-    TestRequire (mEbsCallback == NULL && mReadyCallback == NULL);
+    TestRequire (mEbsCallback == NULL && mReadyCallback == NULL && mBeforeEbsCallback == NULL);
   }
   return Status;
 }
@@ -616,13 +639,16 @@ SerialPortWrite (UINT8 *Buffer, UINTN Size)
 VOID
 OpteeClientApiExitBootServices (VOID)
 {
-  TestRequire (TestAtEbs);
+  // DXE Core signals BeforeExitBootServices before it accepts the map key.
+  TestRequire (!TestAtEbs);
+  TestSerialOnly = TRUE;
 }
 
 BOOLEAN
 TestCallbacksResident (VOID)
 {
   return TestResidentImages == 1 && (mEbsCallback == NULL || mEbsResident) &&
+         (mBeforeEbsCallback == NULL || mBeforeEbsResident) &&
          (mReadyCallback == NULL || mReadyResident);
 }
 
@@ -662,12 +688,17 @@ TestReset (
   mLastFailureOrigin           = 0;
   TestProtocol                 = NULL;
   mEbsCallback                 = NULL;
+  mBeforeEbsCallback           = NULL;
+  mBeforeEbsSignaled           = FALSE;
   TestAtEbs                    = FALSE;
   TestHalted                   = FALSE;
   TestInvokeResult             = TEEC_SUCCESS;
   TestCloseResult              = TEEC_SUCCESS;
   TestOpenResult               = TEEC_SUCCESS;
   TestEventResult              = EFI_SUCCESS;
+  TestEventFailCall            = 0;
+  TestEventCalls               = 0;
+  TestSerialOnly               = FALSE;
   TestInstallResult            = EFI_SUCCESS;
   TestFinalizeResult           = TRUE;
   TestCloseSawReadinessRevoked = FALSE;
@@ -734,11 +765,28 @@ TestStart (
 }
 
 
+/** DXE Core signals this group once, on the first ExitBootServices call. **/
+VOID
+TestBeforeExitBootServices (
+  VOID
+  )
+{
+  TestRequire (!TestAtEbs && mBeforeEbsCallback != NULL);
+  if (!mBeforeEbsSignaled) {
+    mBeforeEbsSignaled = TRUE;
+    mBeforeEbsCallback ((EFI_EVENT)(UINTN)3, NULL);
+  }
+}
+
 VOID
 TestExitBootServices (
   VOID
   )
 {
+  if (!TestAtEbs) {
+    TestBeforeExitBootServices ();
+  }
+
   TestAtEbs = TRUE;
   TestRequire (mEbsCallback != NULL);
   mEbsCallback ((EFI_EVENT)(UINTN)1, NULL);

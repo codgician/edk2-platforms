@@ -567,6 +567,23 @@ EventRegistrationFailure (
 }
 
 STATIC void
+LateEventRegistrationFailure (
+  void  **State
+  )
+{
+  // A failed second registration must not leave the first event pointing
+  // into an image that is about to be unloaded.
+  TestReset ();
+  TestEventResult   = EFI_OUT_OF_RESOURCES;
+  TestEventFailCall = 2;
+  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_null (TestProtocol);
+  assert_int_equal (TestClosedEvents, 1);
+  assert_int_equal (TestInvocations, 0);
+  assert_string_equal (TestSerial, "TPM FTPMDxe: EBS callback unavailable, TPM skipped (Out of Resources)\r\n");
+}
+
+STATIC void
 InitializationDiagnostics (
   void  **State
   )
@@ -598,9 +615,12 @@ FinalMeasurementBeforeClose (
   void  **State
   )
 {
-  // Model Tcg2Dxe's TPL_NOTIFY callback before FTPMDxe's TPL_CALLBACK.
-  TestAtEbs = TRUE;
+  // DXE Core signals BeforeExitBootServices before accepting the map key;
+  // Tcg2Dxe's TPL_NOTIFY final measurements then run on serial-only output.
   UINT32  Size = 32;
+  TestBeforeExitBootServices ();
+  assert_true (TestSerialOnly);
+  TestAtEbs               = TRUE;
   TestCheckZeroResponse   = TRUE;
   TestCheckPrivateCommand = TRUE;
   assert_int_equal (Submit (&Size), EFI_SUCCESS);
@@ -690,6 +710,7 @@ main (
     cmocka_unit_test_setup (InstallFailureAbsentTaSkipsCap, Before),
     cmocka_unit_test_setup (OpenFailure,                  Before),
     cmocka_unit_test_setup (EventRegistrationFailure,     Before),
+    cmocka_unit_test_setup (LateEventRegistrationFailure, Before),
     cmocka_unit_test_setup (InitializationDiagnostics,    Before),
     cmocka_unit_test_setup (FinalMeasurementBeforeClose,  Before),
     cmocka_unit_test_setup (DiagnosticsBeforeEbs,         Before),
