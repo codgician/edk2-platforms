@@ -747,6 +747,9 @@
       # Measure loaded images (boot loaders into PCR 4, option ROMs into PCR 2).
       NULL|SecurityPkg/Library/DxeTpm2MeasureBootLib/DxeTpm2MeasureBootLib.inf
 !endif
+    <PcdsFixedAtBuild>
+      # DxeTpm2MeasureBootLib reports recovery caps on the SerialDxe UART.
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
   SecurityPkg/VariableAuthenticated/SecureBootConfigDxe/SecureBootConfigDxe.inf
   SecurityPkg/EnrollFromDefaultKeysApp/EnrollFromDefaultKeysApp.inf
@@ -758,6 +761,8 @@
 !if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
       NULL|SecurityPkg/Library/DxeTpm2MeasureBootLib/DxeTpm2MeasureBootLib.inf
 !endif
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
 !endif
   Silicon/CIX/Sky1/Drivers/RngDxe/RngDxe.inf
@@ -1106,5 +1111,8 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
     <PcdsFixedAtBuild>
       gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
-  Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf
+  Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf {
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
+  }
 !endif
