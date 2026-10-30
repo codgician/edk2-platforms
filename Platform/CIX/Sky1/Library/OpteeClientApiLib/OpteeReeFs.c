@@ -41,6 +41,41 @@ STATIC UINTN             mTotalCapacity;
 // Never reset this counter: even a finalized client's descriptors stay stale.
 STATIC UINT32            mLastDescriptorId;
 
+/** Only rejection return sites log; nested parsing/allocation helpers stay quiet. */
+STATIC
+TEEC_Result
+FsReject (
+  IN CONST CHAR8  *Check,
+  IN UINT64       Value,
+  IN TEEC_Result  Status
+  )
+{
+  OpteeReject (Check, Value, Status);
+  return Status;
+}
+
+/** Inspect metadata only: paths and file bytes never enter diagnostics. */
+STATIC
+UINT64
+FsMemrefValue (
+  IN OPTEE_MSG_PARAM  *Param,
+  IN UINT64           Expected
+  )
+{
+  VOID   *Buffer;
+  UINTN  Size;
+
+  if (Param->Attr != Expected) {
+    return Param->Attr;
+  }
+
+  if (!OpteeMsgParamToBuffer (Param, &Buffer, &Size)) {
+    return OpteeMsgParamRejectValue (Param);
+  }
+
+  return Param->U.Tmem.Size;
+}
+
 STATIC
 REE_FS_DESCRIPTOR *
 FindDescriptor (
@@ -215,24 +250,24 @@ FsOpen (
       (Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ||
       !GetName (&Arg->Params[1], Name))
   {
-    return TEEC_ERROR_BAD_PARAMETERS;
+    return FsReject ("REE-FS open framing", (Arg->NumParams != 3) ? Arg->NumParams : ((Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ? Arg->Params[2].Attr : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT)), TEEC_ERROR_BAD_PARAMETERS);
   }
 
   File = FindByName (Name);
   if (!Create && (File == NULL)) {
-    return TEEC_ERROR_ITEM_NOT_FOUND;
+    return FsReject ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   }
 
   // Reserve every resource before CREATE can truncate an existing file.
   if (mLastDescriptorId == MAX_INT32) {
-    return TEEC_ERROR_OUT_OF_MEMORY;
+    return FsReject ("REE-FS descriptor lifetime", mLastDescriptorId, TEEC_ERROR_OUT_OF_MEMORY);
   }
 
   for (Index = 0; Index < REE_FS_MAX_DESCRIPTORS && (mDescriptors[Index].File != NULL); Index++) {
   }
 
   if (Index == REE_FS_MAX_DESCRIPTORS) {
-    return TEEC_ERROR_OUT_OF_MEMORY;
+    return FsReject ("REE-FS descriptor quota", Index, TEEC_ERROR_OUT_OF_MEMORY);
   }
 
   Descriptor = &mDescriptors[Index];
@@ -241,7 +276,7 @@ FsOpen (
     }
 
     if (Index == REE_FS_MAX_FILES) {
-      return TEEC_ERROR_OUT_OF_MEMORY;
+      return FsReject ("REE-FS file quota", Index, TEEC_ERROR_OUT_OF_MEMORY);
     }
 
     File        = &mFiles[Index];
@@ -276,13 +311,13 @@ FsReadWrite (
       (Arg->Params[1].Attr != (Write ? OPTEE_MSG_ATTR_TYPE_TMEM_INPUT : OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT)) ||
       !OpteeMsgParamToBuffer (&Arg->Params[1], &Buffer, &Length))
   {
-    return TEEC_ERROR_BAD_PARAMETERS;
+    return FsReject ("REE-FS IO framing", (Arg->NumParams != 2) ? Arg->NumParams : FsMemrefValue (&Arg->Params[1], Write ? OPTEE_MSG_ATTR_TYPE_TMEM_INPUT : OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT), TEEC_ERROR_BAD_PARAMETERS);
   }
 
   Descriptor = FindDescriptor (Arg->Params[0].U.Value.B);
   Offset     = Arg->Params[0].U.Value.C;
   if (Descriptor == NULL) {
-    return TEEC_ERROR_GENERIC;
+    return FsReject ("REE-FS descriptor", Arg->Params[0].U.Value.B, TEEC_ERROR_GENERIC);
   }
 
   File = Descriptor->File;
@@ -302,11 +337,11 @@ FsReadWrite (
   }
 
   if (Offset > MAX_UINTN - Length) {
-    return TEEC_ERROR_BAD_PARAMETERS;
+    return FsReject ("REE-FS offset", Offset, TEEC_ERROR_BAD_PARAMETERS);
   }
 
   if (((UINTN)Offset + Length > File->Size) && !SetSize (File, Offset + Length)) {
-    return TEEC_ERROR_OUT_OF_MEMORY;
+    return FsReject ("REE-FS capacity", Offset + Length, TEEC_ERROR_OUT_OF_MEMORY);
   }
 
   CopyMem (File->Data + (UINTN)Offset, Buffer, Length);
@@ -325,19 +360,27 @@ FsRename (
   REE_FS_FILE  *Old;
   REE_FS_FILE  *New;
 
-  if ((Arg->NumParams != 3) || !GetName (&Arg->Params[1], OldName) || !GetName (&Arg->Params[2], NewName)) {
-    return TEEC_ERROR_BAD_PARAMETERS;
+  if (Arg->NumParams != 3) {
+    return FsReject ("REE-FS rename framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
+  }
+
+  if (!GetName (&Arg->Params[1], OldName)) {
+    return FsReject ("REE-FS rename framing", FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
+  }
+
+  if (!GetName (&Arg->Params[2], NewName)) {
+    return FsReject ("REE-FS rename framing", FsMemrefValue (&Arg->Params[2], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
   }
 
   Old = FindByName (OldName);
   if (Old == NULL) {
-    return TEEC_ERROR_ITEM_NOT_FOUND;
+    return FsReject ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   }
 
   New = FindByName (NewName);
   if ((New != NULL) && (New != Old)) {
     if (Arg->Params[0].U.Value.B == 0) {
-      return TEEC_ERROR_ACCESS_CONFLICT;
+      return FsReject ("REE-FS overwrite", Arg->Params[0].U.Value.B, TEEC_ERROR_ACCESS_CONFLICT);
     }
 
     Clear (New);
@@ -359,7 +402,7 @@ OpteeReeFsHandle (
   if ((Arg == NULL) || (Arg->NumParams == 0) ||
       (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT))
   {
-    return TEEC_ERROR_BAD_PARAMETERS;
+    return FsReject ("REE-FS framing", (Arg == NULL) ? 0 : ((Arg->NumParams == 0) ? 0 : Arg->Params[0].Attr), TEEC_ERROR_BAD_PARAMETERS);
   }
 
   switch (Arg->Params[0].U.Value.A) {
@@ -369,12 +412,12 @@ OpteeReeFsHandle (
       return FsOpen (Arg, TRUE);
     case OPTEE_RPC_FS_CLOSE:
       if (Arg->NumParams != 1) {
-        return TEEC_ERROR_BAD_PARAMETERS;
+        return FsReject ("REE-FS close framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
       }
 
       Descriptor = FindDescriptor (Arg->Params[0].U.Value.B);
       if (Descriptor == NULL) {
-        return TEEC_ERROR_GENERIC;
+        return FsReject ("REE-FS descriptor", Arg->Params[0].U.Value.B, TEEC_ERROR_GENERIC);
       }
 
       ZeroMem (Descriptor, sizeof (*Descriptor));
@@ -385,23 +428,27 @@ OpteeReeFsHandle (
       return FsReadWrite (Arg, TRUE);
     case OPTEE_RPC_FS_TRUNCATE:
       if (Arg->NumParams != 1) {
-        return TEEC_ERROR_BAD_PARAMETERS;
+        return FsReject ("REE-FS truncate framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
       }
 
       Descriptor = FindDescriptor (Arg->Params[0].U.Value.B);
       if (Descriptor == NULL) {
-        return TEEC_ERROR_GENERIC;
+        return FsReject ("REE-FS descriptor", Arg->Params[0].U.Value.B, TEEC_ERROR_GENERIC);
       }
 
-      return SetSize (Descriptor->File, Arg->Params[0].U.Value.C) ? TEEC_SUCCESS : TEEC_ERROR_OUT_OF_MEMORY;
+      if (!SetSize (Descriptor->File, Arg->Params[0].U.Value.C)) {
+        return FsReject ("REE-FS capacity", Arg->Params[0].U.Value.C, TEEC_ERROR_OUT_OF_MEMORY);
+      }
+
+      return TEEC_SUCCESS;
     case OPTEE_RPC_FS_REMOVE:
       if ((Arg->NumParams != 2) || !GetName (&Arg->Params[1], Name)) {
-        return TEEC_ERROR_BAD_PARAMETERS;
+        return FsReject ("REE-FS remove framing", (Arg->NumParams != 2) ? Arg->NumParams : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
       }
 
       File = FindByName (Name);
       if (File == NULL) {
-        return TEEC_ERROR_ITEM_NOT_FOUND;
+        return FsReject ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
       }
 
       Clear (File);
@@ -413,12 +460,12 @@ OpteeReeFsHandle (
           (Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ||
           !GetName (&Arg->Params[1], Name))
       {
-        return TEEC_ERROR_BAD_PARAMETERS;
+        return FsReject ("REE-FS directory framing", (Arg->NumParams != 3) ? Arg->NumParams : ((Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ? Arg->Params[2].Attr : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT)), TEEC_ERROR_BAD_PARAMETERS);
       }
 
       // Object enumeration uses dirf.db; directory support is unnecessary.
-      return TEEC_ERROR_ITEM_NOT_FOUND;
+      return FsReject ("REE-FS directory unsupported", Arg->Params[0].U.Value.A, TEEC_ERROR_ITEM_NOT_FOUND);
     default:
-      return TEEC_ERROR_NOT_SUPPORTED;
+      return FsReject ("REE-FS command", Arg->Params[0].U.Value.A, TEEC_ERROR_NOT_SUPPORTED);
   }
 }

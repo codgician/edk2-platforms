@@ -16,6 +16,7 @@
 [Sources]
   OpteeClientApiLib.c
   OpteeClientInternal.h
+  OpteeClientDiagnostics.h
   OpteeClientRpc.c
   OpteeReeFs.c
 
@@ -34,6 +35,9 @@
   DxeServicesLib
   MemoryAllocationLib
   PcdLib
+  PrintLib
+  SerialPortLib
+  UefiBootServicesTableLib
   TimerLib
   UefiRuntimeServicesTableLib
 

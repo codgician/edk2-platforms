@@ -7,6 +7,47 @@
 #include <Library/DxeServicesLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include "TestSupport.h"
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <stdarg.h>
+
+// Only architecture/string base adapters are mocked; formatting is BasePrintLib.
+UINT64 EFIAPI DivU64x32Remainder (UINT64 Dividend, UINT32 Divisor, UINT32 *Remainder) {
+  if (Remainder != NULL) { *Remainder = Dividend % Divisor; }
+  return Dividend / Divisor;
+}
+UINTN EFIAPI StrnLenS (CONST CHAR16 *String, UINTN MaxSize) {
+  UINTN Length;
+  for (Length = 0; Length < MaxSize && String[Length] != 0; Length++) { }
+  return Length;
+}
+
+UINTN TestDiagnosticCount;
+CHAR8 TestDiagnostic[512];
+EFI_SYSTEM_TABLE *gST;
+
+VOID TestClearDiagnostics (VOID) {
+  TestDiagnosticCount = 0;
+  ZeroMem (TestDiagnostic, sizeof (TestDiagnostic));
+}
+UINTN EFIAPI SerialPortWrite (UINT8 *Buffer, UINTN Size) {
+  assert (Size < sizeof (TestDiagnostic));
+  assert (Size >= 2 && Buffer[Size - 2] == '\r' && Buffer[Size - 1] == '\n');
+  memcpy (TestDiagnostic, Buffer, Size);
+  TestDiagnostic[Size] = 0;
+  TestDiagnosticCount++;
+  assert (strstr (TestDiagnostic, "SECRET-CANARY") == NULL);
+  return Size;
+}
+VOID TestExpectDiagnostic (CONST CHAR8 *Check, UINT64 Value, UINT64 Status) {
+  CHAR8 Expected[512];
+  snprintf (Expected, sizeof (Expected), "TPM OpteeClient: %s value=0x%llX (0x%llX)\r\n",
+            Check, (unsigned long long)Value, (unsigned long long)Status);
+  assert (TestDiagnosticCount == 1);
+  assert (strcmp (TestDiagnostic, Expected) == 0);
+  TestClearDiagnostics ();
+}
 
 UINT8 TestPool[TEST_POOL_SIZE] __attribute__((aligned(65536)));
 UINT64 TestShmBase;
@@ -123,6 +164,7 @@ VOID TestResetServices (VOID) {
   TestGetTimeHook = NULL;
   TestFvHook = NULL;
   TestFailAllocation (0);
+  TestClearDiagnostics ();
 }
 VOID TestInit (VOID) {
   TestResetServices ();

@@ -34,6 +34,10 @@ extern VOID (*TestCacheHook)(ARM_SMC_ARGS *Args);
 extern VOID (*TestFreeHook)(VOID *Buffer);
 extern EFI_STATUS (*TestGetTimeHook)(EFI_TIME *Time);
 extern EFI_STATUS (*TestFvHook)(CONST EFI_GUID *Guid, VOID **Image, UINTN *Size);
+extern UINTN TestDiagnosticCount;
+extern CHAR8 TestDiagnostic[512];
+VOID TestClearDiagnostics (VOID);
+VOID TestExpectDiagnostic (CONST CHAR8 *Check, UINT64 Value, UINT64 Status);
 
 VOID TestInit (VOID);
 VOID TestFini (VOID);

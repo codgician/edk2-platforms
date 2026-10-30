@@ -48,6 +48,7 @@ RpcLoadTa (
 
   OpteeUuidFromOctets ((CONST UINT8 *)&Arg->Params[0].U.Value, &Uuid);
   if (!CompareGuid (&Uuid, &mFtpmTaGuid)) {
+    OpteeReject ("TA admission", Uuid.Data1, TEEC_ERROR_ITEM_NOT_FOUND);
     return TEEC_ERROR_ITEM_NOT_FOUND;
   }
 
@@ -56,6 +57,7 @@ RpcLoadTa (
   //
   if (EFI_ERROR (GetSectionFromAnyFv (&Uuid, EFI_SECTION_RAW, 0, &Image, &ImageSize))) {
     DEBUG ((DEBUG_ERROR, "%a: TA %g not found\n", __func__, &Uuid));
+    OpteeReject ("TA image unavailable", 0, TEEC_ERROR_ITEM_NOT_FOUND);
     return TEEC_ERROR_ITEM_NOT_FOUND;
   }
 
@@ -63,6 +65,7 @@ RpcLoadTa (
   if (Buffer == NULL) {
     Result = TEEC_SUCCESS;
   } else if (ImageSize > BufferSize) {
+    OpteeReject ("TA capacity", ImageSize, TEEC_ERROR_SHORT_BUFFER);
     Result = TEEC_ERROR_SHORT_BUFFER;
   } else {
     CopyMem (Buffer, Image, ImageSize);
@@ -305,6 +308,29 @@ RpcCmd (
   }
 
   if (Result != TEEC_SUCCESS) {
+    // FS and TA admission/capacity report their own more specific check.
+    if ((Arg->Cmd != OPTEE_RPC_CMD_FS) &&
+        !((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) &&
+          ((Result == TEEC_ERROR_ITEM_NOT_FOUND) || (Result == TEEC_ERROR_SHORT_BUFFER))))
+    {
+      if (Arg->Cmd == OPTEE_RPC_CMD_SUSPEND) {
+        OpteeReject ("RPC suspend", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : Arg->Params[0].U.Value.A), Result);
+      } else if (Arg->Cmd == OPTEE_RPC_CMD_SHM_ALLOC) {
+        OpteeReject ("RPC SHM allocation", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : ((Arg->Params[0].U.Value.B > MAX_UINTN) ? Arg->Params[0].U.Value.B : ((Result == TEEC_ERROR_BAD_PARAMETERS) ? Arg->Params[0].U.Value.C : Arg->Params[0].U.Value.B)))), Result);
+      } else if (Arg->Cmd == OPTEE_RPC_CMD_SHM_FREE) {
+        OpteeReject ("RPC SHM ownership", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : Arg->Params[0].U.Value.B)), Result);
+      } else if ((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) && (Arg->NumParams == 2)) {
+        OpteeReject ("TA framing", (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((Arg->Params[1].Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) ? Arg->Params[1].Attr : OpteeMsgParamRejectValue (&Arg->Params[1])), Result);
+      } else if ((Arg->Cmd == OPTEE_RPC_CMD_NOTIFICATION) && (Arg->NumParams == 1)) {
+        OpteeReject ("RPC notification", (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : Arg->Params[0].U.Value.A, Result);
+      } else if ((Arg->Cmd == OPTEE_RPC_CMD_GET_TIME) && (Result == TEEC_ERROR_BAD_PARAMETERS) && (Arg->NumParams == 1)) {
+        OpteeReject ("RPC time framing", Arg->Params[0].Attr, Result);
+      } else if (Result == TEEC_ERROR_BAD_PARAMETERS) {
+        OpteeReject ("RPC framing", Arg->NumParams, Result);
+      } else {
+        OpteeReject ("RPC command", Arg->Cmd, Result);
+      }
+    }
     DEBUG ((DEBUG_INFO, "%a: RPC command %u -> 0x%x\n", __func__, Arg->Cmd, Result));
   }
 
@@ -332,6 +358,9 @@ OpteeRpcHandle (
     case OPTEE_SMC_RPC_FUNC_ALLOC:
       // Only a1/a2 and a4/a5 are allocation outputs; preserve resume state.
       Buffer    = OpteeShmAllocOwned (Args->Arg1, SIZE_4KB, OPTEE_SHM_RPC_ARG);
+      if (Buffer == NULL) {
+        OpteeReject ("RPC argument allocation", Args->Arg1, TEEC_ERROR_OUT_OF_MEMORY);
+      }
       Address   = (UINT64)(UINTN)Buffer;
       Args->Arg1 = (UINTN)(Address >> 32);
       Args->Arg2 = (UINTN)(Address & MAX_UINT32);
@@ -341,7 +370,12 @@ OpteeRpcHandle (
 
     case OPTEE_SMC_RPC_FUNC_FREE:
       Address = ((UINT64)(UINT32)Args->Arg1 << 32) | (UINT32)Args->Arg2;
-      return OpteeShmFreeOwned ((VOID *)(UINTN)Address, OPTEE_SHM_RPC_ARG);
+      if (!OpteeShmFreeOwned ((VOID *)(UINTN)Address, OPTEE_SHM_RPC_ARG)) {
+        OpteeReject ("RPC argument ownership", Address, TEEC_ERROR_BAD_PARAMETERS);
+        return FALSE;
+      }
+
+      return TRUE;
 
     case OPTEE_SMC_RPC_FUNC_FOREIGN_INTR:
       return TRUE;
@@ -349,6 +383,7 @@ OpteeRpcHandle (
     case OPTEE_SMC_RPC_FUNC_CMD:
       Address = ((UINT64)(UINT32)Args->Arg1 << 32) | (UINT32)Args->Arg2;
       if (!OpteeShmIsOwned (Address, sizeof (OPTEE_MSG_ARG), OPTEE_SHM_RPC_ARG)) {
+        OpteeReject ("RPC argument ownership", Address, TEEC_ERROR_BAD_PARAMETERS);
         return FALSE;
       }
 
@@ -357,11 +392,13 @@ OpteeRpcHandle (
       CopyMem (Snapshot, Arg, sizeof (*Snapshot));
       NumParams = Snapshot->NumParams;
       if (NumParams > OPTEE_RPC_MAX_PARAMS) {
+        OpteeReject ("RPC parameter count", NumParams, TEEC_ERROR_BAD_PARAMETERS);
         return FALSE;
       }
 
       Length = OPTEE_MSG_ARG_SIZE (NumParams);
       if (!OpteeShmIsOwned (Address, Length, OPTEE_SHM_RPC_ARG)) {
+        OpteeReject ("RPC argument size", Length, TEEC_ERROR_BAD_PARAMETERS);
         return FALSE;
       }
 
@@ -372,6 +409,7 @@ OpteeRpcHandle (
       return TRUE;
 
     default:
+      OpteeReject ("RPC function", OPTEE_SMC_RPC_FUNC (Args->Arg0), TEEC_ERROR_NOT_SUPPORTED);
       return FALSE;
   }
 }

@@ -1,5 +1,7 @@
 # Build the production client, allocator, RPC dispatcher and filesystem together.
-set(OPTEE_SOURCES ../OpteeClientApiLib.c ../OpteeClientRpc.c ../OpteeReeFs.c TestSupport.c)
+set(OPTEE_SOURCES ../OpteeClientApiLib.c ../OpteeClientRpc.c ../OpteeReeFs.c TestSupport.c
+  "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLib.c"
+  "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLibInternal.c")
 function(optee_host_options NAME)
   target_compile_options(${NAME} PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/TestConfig.h")
   target_link_options(${NAME} PRIVATE
@@ -8,7 +10,7 @@ function(optee_host_options NAME)
 endfunction()
 sky1_host_test(optee_client SOURCES ClientTest.c ${OPTEE_SOURCES})
 optee_host_options(optee_client)
-foreach(CASE zero ownership size metadata close open open_rejected partial rpc loop transport cache cache_failure finalize)
+foreach(CASE zero ownership size metadata close open open_rejected partial rpc loop transport cache cache_failure cache_cookie finalize)
   add_test(NAME optee_client_${CASE} COMMAND optee_client ${CASE})
 endforeach()
 sky1_host_test(reef_fs_test SOURCES ReeFsTest.c ${OPTEE_SOURCES})
@@ -18,6 +20,8 @@ foreach(CASE stale huge direction sequence)
 endforeach()
 sky1_host_test(rpc_test SOURCES RpcTest.c ${OPTEE_SOURCES})
 optee_host_options(rpc_test)
+sky1_host_test(optee_diagnostics SOURCES DiagnosticsTest.c ${OPTEE_SOURCES})
+optee_host_options(optee_diagnostics)
 sky1_host_fuzz(reef_fs_fuzz SOURCES ReeFsFuzz.c ${OPTEE_SOURCES})
 optee_host_options(reef_fs_fuzz)
 sky1_host_fuzz(rpc_fuzz SOURCES RpcFuzz.c ${OPTEE_SOURCES})

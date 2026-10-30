@@ -32,10 +32,13 @@ Dispatch (OPTEE_MSG_ARG *Arg)
   UINT64 Address = (UINT64)(UINTN)Arg;
   BOOLEAN Safe;
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_CMD;
+  UINTN Before = TestDiagnosticCount;
+  if (Before != 0) { TestClearDiagnostics (); Before = 0; }
   Args.Arg1 = Address >> 32;
   Args.Arg2 = (UINT32)Address;
   Args.Arg3 = 0x13579;
   Safe = OpteeRpcHandle (&Args);
+  assert_int_equal (TestDiagnosticCount - Before, (!Safe || (Arg->Ret != TEEC_SUCCESS)) ? 1 : 0);
   assert_int_equal (Args.Arg3, 0x13579);
   return Safe;
 }
@@ -71,6 +74,7 @@ WrongDirectionTime (VOID **State)
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
   Dispatch (Arg);
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC time framing", OPTEE_MSG_ATTR_TYPE_VALUE_INPUT, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestTimeCalls, 0);
   TestFini ();
 }
@@ -89,6 +93,7 @@ DeniedTa (VOID **State)
   Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
   Dispatch (Arg);
   assert_int_equal (Arg->Ret, TEEC_ERROR_ITEM_NOT_FOUND);
+  TestExpectDiagnostic ("TA admission", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   assert_int_equal (TestFvCalls, 0);
   TestFini ();
 }
@@ -106,6 +111,7 @@ OversizedSuspend (VOID **State)
   Arg->Params[0].U.Value.A = 101;
   Dispatch (Arg);
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC suspend", 101, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestDelayCalls, 0);
   TestFini ();
 }
@@ -123,6 +129,7 @@ TruncatedArgument (VOID **State)
   /* Baseline rounds to pages; this write stays in its page but not its request. */
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert_false (Dispatch (Arg));
+  TestExpectDiagnostic ("RPC argument size", OPTEE_MSG_ARG_SIZE (1), TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestTimeCalls, 0);
   TestFini ();
 }
@@ -141,6 +148,7 @@ NonOwningArgument (VOID **State)
   Arg->NumParams = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert_false (Dispatch (Arg));
+  TestExpectDiagnostic ("RPC argument ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestTimeCalls, 0);
   TestFini ();
 }
@@ -226,6 +234,7 @@ AllowedTaAndSnapshot (VOID **State)
   SetLoad (Arg, Buffer, 8);
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_SHORT_BUFFER);
+  TestExpectDiagnostic ("TA capacity", 16, TEEC_ERROR_SHORT_BUFFER);
   assert_int_equal (Arg->Params[1].U.Tmem.Size, 16);
   for (Index = 0; Index < 32; Index++) { assert_int_equal (Buffer[Index], 0x7b); }
   mMutate = TRUE;
@@ -248,6 +257,7 @@ AllowedTaAndSnapshot (VOID **State)
   SetLoad (Arg, NULL, 0);
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_ITEM_NOT_FOUND);
+  TestExpectDiagnostic ("TA image unavailable", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   assert_int_equal (TestFvCalls, 4);
   TestFini ();
 }
@@ -296,9 +306,11 @@ TimeSnapshotAndValidation (VOID **State)
   TestGetTimeHook = BadTime;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_GENERIC);
+  TestExpectDiagnostic ("RPC command", OPTEE_RPC_CMD_GET_TIME, TEEC_ERROR_GENERIC);
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT | BIT8;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC time framing", OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT | BIT8, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestTimeCalls, 2);
   TestFini ();
 }
@@ -315,28 +327,35 @@ CountsUnknownAndNotifications (VOID **State)
   Arg->NumParams = 4;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_NOT_SUPPORTED);
+  TestExpectDiagnostic ("RPC command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
   Arg->NumParams = 5;
   assert_false (Dispatch (Arg));
+  TestExpectDiagnostic ("RPC parameter count", 5, TEEC_ERROR_BAD_PARAMETERS);
   Arg->NumParams = MAX_UINT32;
   assert_false (Dispatch (Arg));
+  TestExpectDiagnostic ("RPC parameter count", MAX_UINT32, TEEC_ERROR_BAD_PARAMETERS);
   Arg->NumParams = 0;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_NOT_SUPPORTED);
+  TestExpectDiagnostic ("RPC command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
   Arg->Cmd = OPTEE_RPC_CMD_NOTIFICATION;
   Arg->NumParams = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
   Arg->Params[0].U.Value.A = 0;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_NOT_SUPPORTED);
+  TestExpectDiagnostic ("RPC notification", 0, TEEC_ERROR_NOT_SUPPORTED);
   Arg->Params[0].U.Value.A = 1;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_SUCCESS);
   Arg->Params[0].U.Value.A = 2;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC notification", 2, TEEC_ERROR_BAD_PARAMETERS);
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | 0x1234;
   Args.Arg3 = 0xabc;
   assert_false (OpteeRpcHandle (&Args));
+  TestExpectDiagnostic ("RPC function", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
   assert_int_equal (Args.Arg3, 0xabc);
   assert_int_equal (TestTimeCalls + TestFvCalls + TestDelayCalls, 0);
   TestFini ();
@@ -371,28 +390,33 @@ PayloadOwnership (VOID **State)
     Arg->Params[0].U.Value.B = (UINTN)Payload;
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
     assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, Owners[Type]));
     Arg->Params[0].U.Value.A = Type;
     Arg->Params[0].U.Value.B++;
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload + 1, TEEC_ERROR_BAD_PARAMETERS);
     Arg->Params[0].U.Value.B--;
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_SUCCESS);
     assert_false (OpteeShmContains ((UINTN)Payload, 1));
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
   }
   Arg->Cmd = OPTEE_RPC_CMD_SHM_FREE;
   Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.B = (UINTN)Arg;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
   Payload = OpteeShmAlloc (32, 8);
   assert_non_null (Payload);
   Arg->Params[0].U.Value.B = (UINTN)Payload;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
   assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, OPTEE_SHM_CLIENT));
   Arg->Cmd = OPTEE_RPC_CMD_SHM_ALLOC;
   Arg->Params[0].U.Value.A = 3;
@@ -400,14 +424,17 @@ PayloadOwnership (VOID **State)
   Arg->Params[0].U.Value.C = 8;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM allocation", 3, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.C = 3;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM allocation", 3, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.C = 8;
   Arg->Params[0].U.Value.B = TEST_POOL_SIZE;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_OUT_OF_MEMORY);
+  TestExpectDiagnostic ("RPC SHM allocation", TEST_POOL_SIZE, TEEC_ERROR_OUT_OF_MEMORY);
   TestFini ();
 }
 
@@ -421,28 +448,35 @@ RejectArgumentAndClientMemrefs (VOID **State)
   Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (2));
   Client = OpteeShmAlloc (32, 8);
   assert_non_null (Client);
+  CopyMem (Client, "SECRET-CANARY", sizeof ("SECRET-CANARY"));
   SetLoad (Arg, Client, 32);
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", (UINTN)Client, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, Arg, sizeof (*Arg));
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, NULL, 0);
   Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_TMEM_INPUT, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, NULL, 0);
   Arg->Params[1].Attr |= BIT8;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT | BIT8, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, NULL, 0);
   Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, NULL, 0);
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INOUT;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_VALUE_INOUT, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestFvCalls, 0);
   TestFini ();
 }
@@ -472,14 +506,17 @@ SmcAllocationAndFree (VOID **State)
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_FREE;
   Args.Arg2++;
   assert_false (OpteeRpcHandle (&Args));
+  TestExpectDiagnostic ("RPC argument ownership", Address + 1, TEEC_ERROR_BAD_PARAMETERS);
   assert_true (OpteeShmIsOwned (Address, 64, OPTEE_SHM_RPC_ARG));
   Args.Arg2--;
   assert_true (OpteeRpcHandle (&Args));
   assert_false (OpteeShmContains ((UINTN)Buffer, 1));
   assert_false (OpteeRpcHandle (&Args));
+  TestExpectDiagnostic ("RPC argument ownership", Address, TEEC_ERROR_BAD_PARAMETERS);
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_ALLOC;
   Args.Arg1 = TEST_POOL_SIZE + 1;
   assert_true (OpteeRpcHandle (&Args));
+  TestExpectDiagnostic ("RPC argument allocation", TEST_POOL_SIZE + 1, TEEC_ERROR_OUT_OF_MEMORY);
   assert_int_equal (Args.Arg1 | Args.Arg2 | Args.Arg4 | Args.Arg5, 0);
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_FOREIGN_INTR;
   assert_true (OpteeRpcHandle (&Args));
@@ -507,10 +544,12 @@ SuspendBounds (VOID **State)
   Arg->Params[0].U.Value.A = MAX_UINT64;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC suspend", MAX_UINT64, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.A = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC suspend", OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestDelayCalls, 1);
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
   Arg->Params[0].U.Value.A = 100;
@@ -523,6 +562,7 @@ SuspendBounds (VOID **State)
   Arg->Params[0].U.Value.A = 1;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC suspend", 1, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestDelayCalls, 10);
   TestFini ();
 }
@@ -552,6 +592,7 @@ ShortHeadersAndServiceErrors (VOID **State)
   TestInit ();
   Arg = RpcArgument (sizeof (*Arg) - 1);
   assert_false (Dispatch (Arg));
+  TestExpectDiagnostic ("RPC argument ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
   assert_int_equal (TestTimeCalls + TestFvCalls + TestDelayCalls, 0);
   Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (2));
   Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
@@ -560,12 +601,14 @@ ShortHeadersAndServiceErrors (VOID **State)
   TestGetTimeHook = FailedTime;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_GENERIC);
+  TestExpectDiagnostic ("RPC command", OPTEE_RPC_CMD_GET_TIME, TEEC_ERROR_GENERIC);
   assert_int_equal (TestTimeCalls, 1);
   SetLoad (Arg, NULL, 0);
   TestFvHook = NoMemoryImage;
   TestFailAllocation (1);
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_ITEM_NOT_FOUND);
+  TestExpectDiagnostic ("TA image unavailable", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   assert_int_equal (TestFvCalls, 1);
   TestFailAllocation (0);
   TestFini ();

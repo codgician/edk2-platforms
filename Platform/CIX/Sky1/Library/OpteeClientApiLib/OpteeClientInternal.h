@@ -12,6 +12,7 @@
 #include <Uefi.h>
 #include <Library/ArmSmcLib.h>
 #include <Library/tee_client_api.h>
+#include "OpteeClientDiagnostics.h"
 
 //
 // SMC function IDs (optee_smc.h).
@@ -219,6 +220,8 @@ OpteeShmContains (
 /**
   Resolve a static contiguous RPC payload; registered/dynamic memory is absent.
   A non-NULL memref must carry the base cookie of its own live RPC payload.
+  Parsing predicates stay silent: their RPC/REE-FS rejection boundary emits
+  exactly one diagnostic with metadata, never the referenced bytes.
   NULL requires zero size and zero cookie (LOAD_TA size query).
 **/
 BOOLEAN
@@ -226,6 +229,12 @@ OpteeMsgParamToBuffer (
   IN  OPTEE_MSG_PARAM  *Param,
   OUT VOID             **Buffer,
   OUT UINTN            *Size
+  );
+
+/** Select rejected memref metadata without reading or printing payload bytes. */
+UINT64
+OpteeMsgParamRejectValue (
+  IN CONST OPTEE_MSG_PARAM  *Param
   );
 
 VOID
