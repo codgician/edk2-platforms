@@ -280,6 +280,7 @@
   Tcg2PhysicalPresenceLib|Platform/CIX/Sky1/Library/DxeTcg2PhysicalPresenceLib/DxeTcg2PhysicalPresenceLib.inf
   Tcg2PpVendorLib|SecurityPkg/Library/Tcg2PpVendorLibNull/Tcg2PpVendorLibNull.inf
   TpmMeasurementLib|SecurityPkg/Library/DxeTpmMeasurementLib/DxeTpmMeasurementLib.inf
+  TcgEventLogRecordLib|SecurityPkg/Library/TcgEventLogRecordLib/TcgEventLogRecordLib.inf
   TpmPlatformHierarchyLib|SecurityPkg/Library/PeiDxeTpmPlatformHierarchyLib/PeiDxeTpmPlatformHierarchyLib.inf
   OpteeClientApiLib|Platform/CIX/Sky1/Library/OpteeClientApiLib/OpteeClientApiLib.inf
   Tpm2DeviceLib|Platform/CIX/Sky1/Library/Tpm2DeviceLib/Tpm2DeviceLib.inf
@@ -606,6 +607,12 @@
 
 !if $(TOKEN_RAM_DISK_SUPPORT) == TRUE
   gCixPlatformTokenSpaceGuid.PcdRamdiskEnable|TRUE
+!endif
+
+!if $(DTPM_SUPPORT) == TRUE || $(FTPM_SUPPORT) == TRUE
+  # FirmwareMeasureDxe logs EV_EFI_PLATFORM_FIRMWARE_BLOB2 events, which the
+  # PFP errata 1.05 introduced; the event log header declares this revision.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTcgPfpMeasurementRevision|105
 !endif
 
 [PcdsPatchableInModule]
@@ -1112,6 +1119,11 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
       gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
   Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf {
+    <PcdsFixedAtBuild>
+      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
+  }
+  # PCR0 measurement of the extracted firmware volumes; see the driver.
+  Platform/CIX/Sky1/Drivers/FirmwareMeasureDxe/FirmwareMeasureDxe.inf {
     <PcdsFixedAtBuild>
       gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }

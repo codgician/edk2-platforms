@@ -1,0 +1,32 @@
+## @file
+#  Measures the firmware volumes extracted from the boot firmware into PCR0.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = FirmwareMeasureDxe
+  FILE_GUID                      = 17b7a847-728a-4c78-869d-25cbf9e9aab9
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = FirmwareMeasureDxeEntryPoint
+
+[Sources]
+  FirmwareMeasureDxe.c
+
+[Packages]
+  MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
+  SecurityPkg/SecurityPkg.dec
+
+[LibraryClasses]
+  HobLib
+  PrintLib
+  SerialPortLib
+  TcgEventLogRecordLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Depex]
+  gEfiTcg2ProtocolGuid

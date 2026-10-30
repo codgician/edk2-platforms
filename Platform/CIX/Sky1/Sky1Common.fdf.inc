@@ -389,4 +389,5 @@
   INF Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf
   INF SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf
   INF Platform/CIX/Sky1/Drivers/Tcg2Config/Tcg2ConfigDxe.inf
+  INF Platform/CIX/Sky1/Drivers/FirmwareMeasureDxe/FirmwareMeasureDxe.inf
 !endif
