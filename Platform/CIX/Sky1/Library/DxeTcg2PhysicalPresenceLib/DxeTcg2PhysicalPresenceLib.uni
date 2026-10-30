@@ -17,6 +17,6 @@
 
 #string STR_MODULE_ABSTRACT             #language en-US "Executes TPM 2.0 requests from OS or BIOS"
 
-#string STR_MODULE_DESCRIPTION          #language en-US "Validates exact PP variable schemas and the immutable flags policy before execution. Every supported TPM change requires fresh F12 confirmation; ESC or a 30-second timeout rejects it. Already-matching PCR allocations are no-ops. Optional flag-waiver, hierarchy, storage and vendor operations are unsupported.\n"
+#string STR_MODULE_DESCRIPTION          #language en-US "Validates exact PP variable schemas and the immutable flags policy before execution. Inert policy/schema failures report through SerialPortLib even in RELEASE. Every supported TPM change requires fresh F12 confirmation; ESC or a 30-second timeout rejects it. PCR allocations are restricted to TPM-supported banks measurable by the linked firmware hash engines and both measurement PCDs. Already-matching PCR allocations are no-ops. Optional flag-waiver, hierarchy, storage and vendor operations are unsupported.\n"
                                                         "Caution: This module requires additional review when modified. This driver will have external input - variable. This external input must be validated carefully to avoid security issue."
 

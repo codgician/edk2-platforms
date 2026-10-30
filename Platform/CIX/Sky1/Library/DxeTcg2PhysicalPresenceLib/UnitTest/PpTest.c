@@ -6,12 +6,17 @@
 #include "HostSupport.h"
 
 static void
-log_all_rejected (
+log_all_hashable_subset (
   void  **State
   )
 {
   PpReset (TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS, 0);
   assert_true (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+  mPp.Accept = TRUE;
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.TraceCount, 1);
+  assert_int_equal (mPp.Trace[7], 7);
+  assert_int_equal (mPp.Resets, 1);
 }
 
 static void
@@ -153,7 +158,7 @@ operations (
         }
 
         if ((Op == 23) || (Op == 33)) {
-          assert_int_equal (mPp.Trace[7], Op == 23 ? 2 : 15);
+          assert_int_equal (mPp.Trace[7], Op == 23 ? 2 : 7);
         }
 
         assert_int_equal (mPp.Resets, 1);
@@ -165,7 +170,7 @@ operations (
   }
 
   PpReset (33, 0);
-  mPp.Active = mPp.Supported;
+  mPp.Active = 7;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
   assert_int_equal (mPp.KeyReads, 0);
@@ -367,6 +372,105 @@ consume_before_mutation (
   assert_int_equal (mPp.KeyReads, 1);
 }
 
+static void
+explicit_unhashable_banks (
+  void  **State
+  )
+{
+  UINT32  Masks[] = { 8, 9, 15, 16, 31 };
+  UINTN   Index;
+
+  for (Index = 0; Index < ARRAY_SIZE (Masks); ++Index) {
+    PpReset (TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS, Masks[Index]);
+    mPp.Supported = 31;
+    mPp.Accept    = TRUE;
+    assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+    Tcg2PhysicalPresenceLibProcessRequest (NULL);
+    assert_int_equal (mPp.KeyReads, 0);
+    assert_int_equal (mPp.TraceCount, 0);
+    assert_int_equal (mPp.Resets, 0);
+    assert_int_equal (mPp.Request.PPResponse, TCG_PP_OPERATION_RESPONSE_BIOS_FAILURE);
+  }
+}
+
+static void
+inert_processing_diagnostic (
+  void  **State
+  )
+{
+  UINTN  Mode;
+
+  for (Mode = 0; Mode < 5; ++Mode) {
+    PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
+    mPp.Accept = TRUE;
+    switch (Mode) {
+      case 0: mPp.PolicyMismatch = 4; break;
+      case 1: mPp.PolicyMismatch = 5; break;
+      case 2: mPp.Locked = FALSE; break;
+      case 3: mPp.FlagsSize--; break;
+      case 4: mPp.RequestSize--; break;
+    }
+
+    Tcg2PhysicalPresenceLibProcessRequest (NULL);
+    assert_int_equal (mPp.SerialWrites, 1);
+    assert_int_equal (mPp.Writes, 0);
+    assert_int_equal (mPp.KeyReads, 0);
+    assert_int_equal (mPp.TraceCount, 0);
+    assert_int_equal (mPp.Resets, 0);
+  }
+}
+
+static void
+allocation_policy_boundaries (
+  void  **State
+  )
+{
+  UINTN  Mode;
+
+  for (Mode = 0; Mode < 2; ++Mode) {
+    PpReset (33, 0);
+    mPp.Accept = TRUE;
+    if (Mode == 0) {
+      mPpHashBitmap = 2;
+    } else {
+      mPpHashMask = 2;
+    }
+
+    Tcg2PhysicalPresenceLibProcessRequest (NULL);
+    assert_int_equal (mPp.TraceCount, 1);
+    assert_int_equal (mPp.Trace[7], 2);
+    assert_int_equal (mPp.KeyReads, 1);
+    assert_int_equal (mPp.Resets, 1);
+  }
+
+  PpReset (33, 0);
+  mPp.Supported = 8;
+  mPp.Active    = 8;
+  mPp.Accept    = TRUE;
+  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.KeyReads, 0);
+  assert_int_equal (mPp.TraceCount, 0);
+  assert_int_equal (mPp.Request.PPResponse, TCG_PP_OPERATION_RESPONSE_BIOS_FAILURE);
+
+  PpReset (23, 4);
+  mPpHashMask = 2;
+  mPp.Accept = TRUE;
+  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.KeyReads, 0);
+  assert_int_equal (mPp.TraceCount, 0);
+
+  PpReset (33, 0);
+  mPp.Active = 7;
+  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.KeyReads, 0);
+  assert_int_equal (mPp.TraceCount, 0);
+  assert_int_equal (mPp.Resets, 0);
+  assert_int_equal (mPp.Request.PPResponse, TCG_PP_OPERATION_RESPONSE_SUCCESS);
+}
+
 int
 main (
   void
@@ -379,7 +483,10 @@ main (
     cmocka_unit_test (reserved_flags),
     cmocka_unit_test (bad_parameter),
     cmocka_unit_test (no_waiver),
-    cmocka_unit_test (log_all_rejected),
+    cmocka_unit_test (log_all_hashable_subset),
+    cmocka_unit_test (explicit_unhashable_banks),
+    cmocka_unit_test (inert_processing_diagnostic),
+    cmocka_unit_test (allocation_policy_boundaries),
     cmocka_unit_test (schemas),
     cmocka_unit_test (operations),
     cmocka_unit_test (failures),

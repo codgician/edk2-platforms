@@ -80,7 +80,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #string STR_TCG2_DISABLE_ENDORSEMENT_ENABLE_STORAGE_HIERARCHY   #language en-US "TPM2 HierarchyControl (TPM_RH_OWNER NO, TPM_RH_ENDORSEMENT YES)"
 
 #string STR_TCG2_OPERATION_PARAMETER       #language en-US "TPM2 Operation Parameter"
-#string STR_TCG2_OPERATION_PARAMETER_HELP  #language en-US "Additional TPM2 Operation Parameter need be sent with Operation Code (required for SetPCRBanks)"
+#string STR_TCG2_OPERATION_PARAMETER_HELP  #language en-US "SetPCRBanks requires a nonzero bitmap of TPM-supported, firmware-hashable banks: SHA1=1, SHA256=2, SHA384=4. Firmware policy may further restrict these banks."
 
 #string STR_TCG2_TPM_1_2                   #language en-US "TPM 1.2"
 #string STR_TCG2_TPM_2_0_DTPM              #language en-US "TPM 2.0"

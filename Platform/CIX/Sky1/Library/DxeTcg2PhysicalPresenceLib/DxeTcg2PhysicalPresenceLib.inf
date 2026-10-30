@@ -3,6 +3,8 @@
 #
 #  Exact PP schemas and a verified LOCK_NOW flags policy are required before execution.
 #  Every TPM mutation requires fresh F12 console confirmation; ESC/30s timeout rejects.
+#  Allocation is limited to TPM-supported banks measurable by Tcg2Dxe and both PCDs.
+#  Inert policy/schema failures report through SerialPortLib even in RELEASE.
 #
 #  Caution: This module requires additional review when modified.
 #  This driver will have external input - variable.
@@ -31,6 +33,8 @@
 [Sources]
   DxeTcg2PhysicalPresenceLib.c
   PpPolicy.h
+  PpHash.h
+  PpStatus.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -50,12 +54,16 @@
   DebugLib
   HobLib
   Tpm2CommandLib
+  PrintLib
+  SerialPortLib
 
 [Protocols]
   gEdkiiVariablePolicyProtocolGuid     ## CONSUMES
 
 [Pcd]
   gCixPlatformTokenSpaceGuid.PcdTPMPPIMemoryBase
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2HashAlgorithmBitmap
+  gEfiSecurityPkgTokenSpaceGuid.PcdTpm2HashMask
 
 [Guids]
   ## SOMETIMES_PRODUCES ## Variable:L"Tcg2PhysicalPresence"

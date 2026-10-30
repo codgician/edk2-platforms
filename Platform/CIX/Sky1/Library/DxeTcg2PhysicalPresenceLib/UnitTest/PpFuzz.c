@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <Library/BaseMemoryLib.h>
 #include "PpMocks.h"
+extern UINT32  mPpHashBitmap;
+extern UINT32  mPpHashMask;
 
 static BOOLEAN
 ValidRequest (
@@ -28,6 +30,10 @@ LLVMFuzzerTestOneInput (
 {
   UINT32   Recent, Response;
   BOOLEAN  Valid;
+  UINT32   Operation;
+  UINT32   Desired;
+  UINT32   Hashable;
+  BOOLEAN  AllocationValid;
 
   if (Size < 10) {
     return 0;
@@ -54,10 +60,32 @@ LLVMFuzzerTestOneInput (
     CopyMem (&mPp.Request, Data + 12, MIN (Size - 12, sizeof (mPp.Request)));
   }
 
+  if (Size > 28) {
+    mPpHashBitmap = Data[28];
+  }
+
+  if (Size > 29) {
+    mPpHashMask = Data[29];
+  }
+
+  Operation = mPp.Request.PPRequest;
+  Hashable  = 7U & mPpHashBitmap & mPpHashMask;
+  Desired   = Operation == 33 ? (mPp.Supported & Hashable) : mPp.Request.PPRequestParameter;
+  AllocationValid = !EFI_ERROR (mPp.CapabilityStatus) && mPp.Supported != 0 &&
+                    (mPp.Supported & ~31U) == 0 && mPp.Active != 0 &&
+                    (mPp.Active & ~mPp.Supported) == 0 && Desired != 0 &&
+                    (Desired & ~(mPp.Supported & Hashable)) == 0;
   Valid = ValidRequest () && mPp.RequestSize == sizeof (mPp.Request) && mPp.FlagsSize == sizeof (mPp.Flags) &&
           mPp.RequestAttr == PP_ATTR && mPp.FlagsAttr == PP_ATTR && (mPp.Flags.PPFlags & ~0x703f2U) == 0 &&
           mPp.PolicyAvailable && mPp.PolicyEnabled && mPp.Locked && mPp.PolicyMismatch == 0 && !EFI_ERROR (mPp.RequestRead) && !EFI_ERROR (mPp.FlagsRead);
-  Tcg2PhysicalPresenceLibNeedUserConfirm ();
+  if (Operation == 23 || Operation == 33) {
+    Valid = Valid && AllocationValid;
+  }
+
+  BOOLEAN Confirm = Tcg2PhysicalPresenceLibNeedUserConfirm ();
+  if ((Operation == 23 || Operation == 33) && !AllocationValid) {
+    assert (!Confirm);
+  }
   Tcg2PhysicalPresenceLibReturnOperationResponseToOsFunction (&Recent, &Response);
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   if (!Valid || !mPp.Accept || mPp.Timeout) {
@@ -67,6 +95,10 @@ LLVMFuzzerTestOneInput (
   if (mPp.TraceCount) {
     assert (mPp.KeyReads == 1 && mPp.Request.PPRequest == 0 && mPp.Request.PPResponse == 0);
     assert (mPp.Trace[0] >= 1 && mPp.Trace[0] <= 4);
+    if (mPp.Trace[0] == 4) {
+      assert (AllocationValid && Desired != mPp.Active);
+      assert (mPp.Trace[7] == Desired && (mPp.Trace[7] & ~Hashable) == 0);
+    }
   }
 
   assert (mPp.TraceCount <= 2 && mPp.Resets <= 1);

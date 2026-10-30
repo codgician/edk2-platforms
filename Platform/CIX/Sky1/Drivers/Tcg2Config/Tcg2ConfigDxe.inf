@@ -33,6 +33,7 @@
   Tcg2ConfigStrings.uni
   Tcg2ConfigNvData.h
   Tcg2Internal.h
+  ../../Library/DxeTcg2PhysicalPresenceLib/PpHash.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -73,6 +74,7 @@
 [Pcd]
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid            ## CONSUMES
   gEfiSecurityPkgTokenSpaceGuid.PcdTcg2HashAlgorithmBitmap    ## CONSUMES
+  gEfiSecurityPkgTokenSpaceGuid.PcdTpm2HashMask               ## CONSUMES
   gCixPlatformTokenSpaceGuid.PcdTcgPhysicalPresenceInterfaceVer  ## CONSUMES
   gCixPlatformTokenSpaceGuid.PcdTpm2AcpiTableRev
 

@@ -13,6 +13,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Library/PcdLib.h>
 #include <Library/Tpm2CommandLib.h>
 #include <Library/Tpm2DeviceLib.h>
+#include "../../Library/DxeTcg2PhysicalPresenceLib/PpHash.h"
 
 #include <Guid/TpmInstance.h>
 
@@ -166,8 +167,9 @@ SaveTcg2PpRequestParameter (
   UINT32      ReturnCode;
   EFI_STATUS  Status;
   if ((mCurrentPpRequest != TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS) ||
-      (PpRequestParameter == 0) || ((PpRequestParameter & ~0x1FU) != 0) ||
-      ((PpRequestParameter & ~mTcg2ConfigPrivateDate->ProtocolCapability.HashAlgorithmBitmap) != 0))
+      (PpRequestParameter == 0) ||
+      ((PpRequestParameter & ~(PpHashableBanks () &
+                              mTcg2ConfigPrivateDate->ProtocolCapability.HashAlgorithmBitmap)) != 0))
   {
     return EFI_INVALID_PARAMETER;
   }
@@ -219,8 +221,9 @@ SaveTcg2PCRBanksRequest (
     Desired &= ~(1U << PCRBankIndex);
   }
 
-  if ((Desired == 0) || ((Desired & ~0x1FU) != 0) ||
-      ((Desired & ~mTcg2ConfigPrivateDate->ProtocolCapability.HashAlgorithmBitmap) != 0))
+  if ((Desired == 0) ||
+      ((Desired & ~(PpHashableBanks () &
+                    mTcg2ConfigPrivateDate->ProtocolCapability.HashAlgorithmBitmap)) != 0))
   {
     return EFI_INVALID_PARAMETER;
   }
@@ -460,7 +463,7 @@ FillBufferWithBootHashAlg (
 }
 
 /**
-  Set ConfigInfo according to TpmAlgHash.
+  Set checkbox visibility for TPM-supported, firmware-hashable banks.
 
   @param[in,out] Tcg2ConfigInfo       TCG2 config info.
   @param[in]     TpmAlgHash           TpmAlgHash.
@@ -472,21 +475,25 @@ SetConfigInfo (
   IN UINT32                       TpmAlgHash
   )
 {
+  UINT32  SelectableBanks;
+
+  SelectableBanks = PpHashableBanks () & mTcg2ConfigPrivateDate->ProtocolCapability.HashAlgorithmBitmap;
+
   switch (TpmAlgHash) {
     case TPM_ALG_SHA1:
-      Tcg2ConfigInfo->Sha1Supported = TRUE;
+      Tcg2ConfigInfo->Sha1Supported = (SelectableBanks & EFI_TCG2_BOOT_HASH_ALG_SHA1) != 0;
       break;
     case TPM_ALG_SHA256:
-      Tcg2ConfigInfo->Sha256Supported = TRUE;
+      Tcg2ConfigInfo->Sha256Supported = (SelectableBanks & EFI_TCG2_BOOT_HASH_ALG_SHA256) != 0;
       break;
     case TPM_ALG_SHA384:
-      Tcg2ConfigInfo->Sha384Supported = TRUE;
+      Tcg2ConfigInfo->Sha384Supported = (SelectableBanks & EFI_TCG2_BOOT_HASH_ALG_SHA384) != 0;
       break;
     case TPM_ALG_SHA512:
-      Tcg2ConfigInfo->Sha512Supported = TRUE;
+      Tcg2ConfigInfo->Sha512Supported = (SelectableBanks & EFI_TCG2_BOOT_HASH_ALG_SHA512) != 0;
       break;
     case TPM_ALG_SM3_256:
-      Tcg2ConfigInfo->Sm3Supported = TRUE;
+      Tcg2ConfigInfo->Sm3Supported = (SelectableBanks & EFI_TCG2_BOOT_HASH_ALG_SM3_256) != 0;
       break;
   }
 }

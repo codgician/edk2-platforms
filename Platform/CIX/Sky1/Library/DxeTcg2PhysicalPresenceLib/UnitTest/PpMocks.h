@@ -37,6 +37,8 @@ typedef struct {
   UINTN                               KeyReads;
   UINTN                               Resets;
   UINTN                               Capabilities;
+  UINTN                               SerialWrites;
+  CHAR8                               SerialLine[256];
 } PP_FIXTURE;
 extern PP_FIXTURE  mPp;
 VOID

@@ -13,6 +13,7 @@
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Library/UefiLib.h>
 #include "PpPolicy.h"
+#include "PpHash.h"
 
 #define PP_PCR_BANK_MASK    (EFI_TCG2_BOOT_HASH_ALG_SHA1 | EFI_TCG2_BOOT_HASH_ALG_SHA256 | EFI_TCG2_BOOT_HASH_ALG_SHA384 | EFI_TCG2_BOOT_HASH_ALG_SHA512 | EFI_TCG2_BOOT_HASH_ALG_SM3_256)
 #define PP_CONFIRM_TIMEOUT  (30 * 10000000ULL)
@@ -169,6 +170,7 @@ PpGetAllocation (
 {
   EFI_STATUS  Status;
   UINT32      Active;
+  UINT32      Hashable;
 
   *NoChange  = FALSE;
   *Supported = 0;
@@ -185,10 +187,11 @@ PpGetAllocation (
     return Status;
   }
 
-  *Desired = (Operation == TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS) ? *Supported : Parameter;
+  Hashable = PpHashableBanks ();
+  *Desired = (Operation == TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS) ? (*Supported & Hashable) : Parameter;
   if ((*Supported == 0) || ((*Supported & ~PP_PCR_BANK_MASK) != 0) ||
       (Active == 0) || ((Active & ~*Supported) != 0) ||
-      (*Desired == 0) || ((*Desired & ~*Supported) != 0))
+      (*Desired == 0) || ((*Desired & ~(*Supported & Hashable)) != 0))
   {
     return EFI_COMPROMISED_DATA;
   }
@@ -389,11 +392,13 @@ Tcg2PhysicalPresenceLibProcessRequest (
 
   Status = PpVerifyFlagsLock ();
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "[TPM2] PP flags lock unavailable: %r; skipping requests\n", Status));
+    // The verifier emits the precise reason before refusing authorization.
     return;
   }
 
-  if (EFI_ERROR (PpReadFlags (&Flags))) {
+  Status = PpReadFlags (&Flags);
+  if (EFI_ERROR (Status)) {
+    PpUnavailable ("flags variable invalid or unreadable", Status);
     return;
   }
 
@@ -404,7 +409,12 @@ Tcg2PhysicalPresenceLibProcessRequest (
     return;
   }
 
-  if (EFI_ERROR (Status) || (Request.PPRequest == TCG2_PHYSICAL_PRESENCE_NO_ACTION)) {
+  if (EFI_ERROR (Status)) {
+    PpUnavailable ("request variable invalid or unreadable", Status);
+    return;
+  }
+
+  if (Request.PPRequest == TCG2_PHYSICAL_PRESENCE_NO_ACTION) {
     return;
   }
 

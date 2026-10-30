@@ -17,6 +17,7 @@
 [Sources]
   TPMVariableDxe.c
   ../../Library/DxeTcg2PhysicalPresenceLib/PpPolicy.h
+  ../../Library/DxeTcg2PhysicalPresenceLib/PpStatus.h
 
 [Packages]
   ArmPkg/ArmPkg.dec
@@ -35,6 +36,9 @@
   MemoryAllocationLib
   BaseMemoryLib
   DebugLib
+  PrintLib
+  SerialPortLib
+  UefiLib
 
 [Guids]
   gEfiTcg2PhysicalPresenceGuid

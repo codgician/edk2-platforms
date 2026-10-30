@@ -8,12 +8,59 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/Tpm2CommandLib.h>
 #include "PpMocks.h"
+#include <Library/SerialPortLib.h>
 
 PP_FIXTURE                             mPp;
 UINT32                                 mPpiMemory[3];
+UINT32                                 mPpHashBitmap;
+UINT32                                 mPpHashMask;
 EFI_GUID                               gEfiTcg2PhysicalPresenceGuid     = EFI_TCG2_PHYSICAL_PRESENCE_DATA_GUID;
 EFI_GUID                               gEdkiiVariablePolicyProtocolGuid = EDKII_VARIABLE_POLICY_PROTOCOL_GUID;
 static EDKII_VARIABLE_POLICY_PROTOCOL  mPolicy;
+
+UINT64 EFIAPI
+DivU64x32Remainder (UINT64 Dividend, UINT32 Divisor, UINT32 *Remainder)
+{
+  if (Remainder != NULL) {
+    *Remainder = Dividend % Divisor;
+  }
+
+  return Dividend / Divisor;
+}
+
+UINT64 EFIAPI
+MultU64x32 (UINT64 Multiplicand, UINT32 Multiplier)
+{
+  return Multiplicand * Multiplier;
+}
+
+UINT64 EFIAPI
+LShiftU64 (UINT64 Operand, UINTN Count)
+{
+  return Operand << Count;
+}
+
+UINT64 EFIAPI
+RShiftU64 (UINT64 Operand, UINTN Count)
+{
+  return Operand >> Count;
+}
+
+UINT16 EFIAPI
+ReadUnaligned16 (CONST UINT16 *Buffer)
+{
+  UINT16 Value;
+  CopyMem (&Value, Buffer, sizeof (Value));
+  return Value;
+}
+
+UINT32 EFIAPI
+ReadUnaligned32 (CONST UINT32 *Buffer)
+{
+  UINT32 Value;
+  CopyMem (&Value, Buffer, sizeof (Value));
+  return Value;
+}
 
 VOID *EFIAPI __real_AllocatePool (UINTN Size);
 VOID *EFIAPI
@@ -65,6 +112,19 @@ Print (
   )
 {
   return mPp.PrintFailure ? 0 : StrLen (Fmt);
+}
+
+UINTN EFIAPI
+SerialPortWrite (
+  UINT8  *Buffer,
+  UINTN  NumberOfBytes
+  )
+{
+  assert (NumberOfBytes < sizeof (mPp.SerialLine));
+  CopyMem (mPp.SerialLine, Buffer, NumberOfBytes);
+  mPp.SerialLine[NumberOfBytes] = '\0';
+  ++mPp.SerialWrites;
+  return NumberOfBytes;
 }
 
 EFI_BOOT_MODE EFIAPI
@@ -413,6 +473,8 @@ PpReset (
 {
   ZeroMem (&mPp, sizeof (mPp));
   ZeroMem (mPpiMemory, sizeof (mPpiMemory));
+  mPpHashBitmap                  = MAX_UINT32;
+  mPpHashMask                    = 0x1f;
   mPp.Request.PPRequest           = Request;
   mPp.Request.PPRequestParameter  = Parameter;
   mPp.Flags.PPFlags               = 0x700e2;

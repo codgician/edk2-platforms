@@ -40,7 +40,7 @@ TPMVariableDxeEntryPoint (
   if (Status == EFI_NOT_FOUND) {
     Flags.PPFlags = PcdGet32 (PcdTcg2PhysicalPresenceFlags) | PP_REQUIRED_FLAGS;
     if ((Flags.PPFlags & ~PP_FLAGS_MASK) != 0) {
-      return EFI_COMPROMISED_DATA;
+      return PpUnavailable ("initial flags schema invalid", EFI_COMPROMISED_DATA);
     }
 
     Status = gRT->SetVariable (
@@ -56,24 +56,24 @@ TPMVariableDxeEntryPoint (
   }
 
   if (EFI_ERROR (Status)) {
-    return Status;
+    return PpUnavailable ("flags initialization or schema failed", Status);
   }
 
   Status = gBS->LocateProtocol (&gEdkiiVariablePolicyProtocolGuid, NULL, (VOID **)&Policy);
   if (EFI_ERROR (Status)) {
-    return Status;
+    return PpUnavailable ("flags lock protocol unavailable", Status);
   }
 
   if ((Policy->Revision < 0x0000000000010000ULL) ||
       (Policy->IsVariablePolicyEnabled == NULL) || (Policy->RegisterVariablePolicy == NULL))
   {
-    return EFI_UNSUPPORTED;
+    return PpUnavailable ("flags lock registration unsupported", EFI_UNSUPPORTED);
   }
 
   Enabled = FALSE;
   Status  = Policy->IsVariablePolicyEnabled (&Enabled);
   if (EFI_ERROR (Status) || !Enabled) {
-    return EFI_SECURITY_VIOLATION;
+    return PpUnavailable ("variable policy disabled or unavailable", EFI_SECURITY_VIOLATION);
   }
 
   ZeroMem (&Lock, sizeof (Lock));
@@ -90,14 +90,10 @@ TPMVariableDxeEntryPoint (
   Status = Policy->RegisterVariablePolicy (&Lock.Entry);
   // ALREADY_STARTED is not sufficient: verify that the existing policy is exact.
   if (EFI_ERROR (Status) && (Status != EFI_ALREADY_STARTED)) {
-    DEBUG ((DEBUG_ERROR, "[TPM2] Cannot lock PP flags: %r\n", Status));
-    return Status;
+    return PpUnavailable ("flags lock registration failed", Status);
   }
 
   Status = PpVerifyFlagsLock ();
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "[TPM2] PP flags lock verification failed: %r\n", Status));
-  }
-
+  // Verification reports one precise reason if the advertised lock is unusable.
   return Status;
 }
