@@ -4,6 +4,8 @@ set(FTPM_DRIVER_SOURCES
   DriverHarness.c
   ../ResidentTpm2DeviceLib/ResidentTpm2DeviceLib.c
   "${EDK_ROOT}/SecurityPkg/Library/Tpm2CommandLib/Tpm2Capability.c"
+  "${EDK_ROOT}/SecurityPkg/Library/Tpm2CommandLib/Tpm2Help.c"
+  "${EDK_ROOT}/SecurityPkg/Library/Tpm2CommandLib/Tpm2Integrity.c"
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLib.c"
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLibInternal.c")
 sky1_host_test(ftpmdxe_test

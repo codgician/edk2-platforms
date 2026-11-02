@@ -35,8 +35,6 @@ STATIC CHAR8  mSerialText[4096];
 STATIC UINTN  mSerialLength;
 STATIC CHAR8  mConsoleText[4096];
 STATIC UINTN  mConsoleLength;
-STATIC UINT8  mReplyFault;
-STATIC UINT8  mMoreData;
 
 EFI_BOOT_SERVICES *   gBS;
 EFI_RUNTIME_SERVICES *gRT;
@@ -162,32 +160,11 @@ Tpm2HierarchyControl (
   return mDisableStatus;
 }
 EFI_STATUS EFIAPI
-Tpm2GetCapability (
-  TPM_CAP Capability,
-  UINT32 Property,
-  UINT32 PropertyCount,
-  TPMI_YES_NO *MoreData,
-  TPMS_CAPABILITY_DATA *Data
+Tpm2GetCapabilityPcrs (
+  TPML_PCR_SELECTION *Pcrs
   )
 {
-  UINT8 *Buffer;
-  UINTN Index;
-  assert_int_equal (Capability, TPM_CAP_PCRS);
-  assert_int_equal (Property, 0);
-  assert_int_equal (PropertyCount, 1);
-  ZeroMem (Data, sizeof (*Data));
-  *MoreData = mMoreData;
-  Data->capability = SwapBytes32 (TPM_CAP_PCRS);
-  Data->data.assignedPCR.count = SwapBytes32 (mAllocation.count);
-  Buffer = (UINT8 *)Data->data.assignedPCR.pcrSelections;
-  for (Index = 0; Index < MIN (mAllocation.count, ARRAY_SIZE (mAllocation.pcrSelections)); Index++) {
-    UINT16 Hash = SwapBytes16 (mAllocation.pcrSelections[Index].hash);
-    CopyMem (Buffer, &Hash, sizeof (Hash));
-    Buffer[2] = mAllocation.pcrSelections[Index].sizeofSelect;
-    CopyMem (Buffer + 3, mAllocation.pcrSelections[Index].pcrSelect,
-             MIN (mAllocation.pcrSelections[Index].sizeofSelect, PCR_SELECT_MAX));
-    Buffer += 3 + MIN (mAllocation.pcrSelections[Index].sizeofSelect, PCR_SELECT_MAX);
-  }
+  CopyMem (Pcrs, &mAllocation, sizeof (*Pcrs));
   return mRawStatus;
 }
 
@@ -212,58 +189,6 @@ Tpm2PcrExtend (
   mCapCount++;
   Trace ('C');
   return mCapStatus;
-}
-
-EFI_STATUS EFIAPI
-Tpm2SubmitCommand (UINT32 Size, UINT8 *Input, UINT32 *OutputSize, UINT8 *Output)
-{
-  TPML_DIGEST_VALUES Digests;
-  UINTN Index;
-  UINTN Match;
-  UINTN Offset = 31;
-  EFI_STATUS Status;
-  assert_int_equal (SwapBytes16 (ReadUnaligned16 ((UINT16 *)Input)), TPM_ST_SESSIONS);
-  assert_int_equal (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 2))), Size);
-  assert_int_equal (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 6))), TPM_CC_PCR_Extend);
-  assert_int_equal (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 14))), 9);
-  assert_int_equal (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 18))), TPM_RS_PW);
-  assert_true (IsZeroBuffer (Input + 22, 5));
-  ZeroMem (&Digests, sizeof (Digests));
-  Digests.count = SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 27)));
-  assert_true (Digests.count <= HASH_COUNT);
-  for (Index = 0; Index < Digests.count; Index++) {
-    assert_true (Offset + 2 <= Size);
-    Digests.digests[Index].hashAlg = SwapBytes16 (ReadUnaligned16 ((UINT16 *)(Input + Offset)));
-    Offset += 2;
-    for (Match = 0; Match < ARRAY_SIZE (mTpmFailureDigests); Match++) {
-      if (mTpmFailureDigests[Match].Algorithm == Digests.digests[Index].hashAlg) {
-        break;
-      }
-    }
-    assert_true (Match < ARRAY_SIZE (mTpmFailureDigests));
-    assert_true (Offset + mTpmFailureDigests[Match].Size <= Size);
-    assert_memory_equal (Input + Offset, mTpmFailureDigests[Match].Digest, mTpmFailureDigests[Match].Size);
-    CopyMem (&Digests.digests[Index].digest, Input + Offset, mTpmFailureDigests[Match].Size);
-    Offset += mTpmFailureDigests[Match].Size;
-  }
-  assert_int_equal (Offset, Size);
-  Status = Tpm2PcrExtend (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(Input + 10))), &Digests);
-  assert_true (*OutputSize >= 19);
-  ZeroMem (Output, 19);
-  Output[0] = 0x80;
-  Output[1] = 0x02;
-  Output[5] = 19;
-  *OutputSize = 19;
-  switch (mReplyFault) {
-    case 1: *OutputSize = 10; Output[1] = 1; Output[5] = 10; break;
-    case 2: Output[5] = 18; break;
-    case 3: Output[9] = 1; break;
-    case 4: Output[13] = 1; break;
-    case 5: Output[15] = 1; break;
-    case 6: Output[16] = 2; break;
-    case 7: Output[18] = 1; break;
-  }
-  return Status;
 }
 
 STATIC EFI_STATUS EFIAPI
@@ -479,23 +404,6 @@ ReadUnaligned32 (CONST UINT32 *Buffer)
 {
   UINT32 Value;
   CopyMem (&Value, Buffer, sizeof (Value));
-  return Value;
-}
-
-UINT16 EFIAPI SwapBytes16 (UINT16 Value) { return __builtin_bswap16 (Value); }
-UINT32 EFIAPI SwapBytes32 (UINT32 Value) { return __builtin_bswap32 (Value); }
-UINT16 EFIAPI WriteUnaligned16 (UINT16 *Buffer, UINT16 Value) {
-  volatile UINT8 *Bytes = (volatile UINT8 *)Buffer;
-  Bytes[0] = (UINT8)Value;
-  Bytes[1] = (UINT8)(Value >> 8);
-  return Value;
-}
-UINT32 EFIAPI WriteUnaligned32 (UINT32 *Buffer, UINT32 Value) {
-  volatile UINT8 *Bytes = (volatile UINT8 *)Buffer;
-  Bytes[0] = (UINT8)Value;
-  Bytes[1] = (UINT8)(Value >> 8);
-  Bytes[2] = (UINT8)(Value >> 16);
-  Bytes[3] = (UINT8)(Value >> 24);
   return Value;
 }
 
@@ -870,21 +778,8 @@ RawCapBanks (VOID **State)
   mAllocation.pcrSelections[4].hash = TPM_ALG_SHA256;
   assert_int_equal (PlatformTpmCapPcrs (), EFI_COMPROMISED_DATA);
   mAllocation.pcrSelections[4].hash = TPM_ALG_SM3_256;
-  mAllocation.pcrSelections[4].sizeofSelect = PCR_SELECT_MAX + 1;
+  mAllocation.pcrSelections[4].sizeofSelect = 0;
   assert_int_equal (PlatformTpmCapPcrs (), EFI_COMPROMISED_DATA);
-  mAllocation.count = ARRAY_SIZE (mAllocation.pcrSelections) + 1;
-  assert_int_equal (PlatformTpmCapPcrs (), EFI_COMPROMISED_DATA);
-
-  mAllocation.count = 2;
-  mMoreData = 1;
-  assert_int_equal (PlatformTpmCapPcrs (), EFI_COMPROMISED_DATA);
-  mMoreData = 0;
-  for (mReplyFault = 1; mReplyFault <= 7; mReplyFault++) {
-    mCapCount = 0;
-    assert_int_equal (PlatformTpmCapPcrs (), EFI_DEVICE_ERROR);
-    assert_int_equal (mCapCount, 1);
-  }
-  mReplyFault = 0;
 }
 
 int

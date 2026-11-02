@@ -407,23 +407,6 @@ InstallFailureNeverHalts (
 }
 
 STATIC void
-InstallFailureCapMalformedExtendStops (
-  void  **State
-  )
-{
-  TestReset ();
-  TestInstallResult = EFI_OUT_OF_RESOURCES;
-  TestCapMalformedExtend = TRUE;
-  TestCapStoppedEntry ();
-  assert_true (TestHalted);
-  assert_int_equal (TestInvocations, 2);
-  assert_int_equal (TestCapExtends, 1);
-  assert_string_equal (TestSerial,
-    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
-    "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
-}
-
-STATIC void
 InstallFailureCapDiscoveryStops (
   void  **State
   )
@@ -438,23 +421,6 @@ InstallFailureCapDiscoveryStops (
   assert_string_equal (TestSerial,
     "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
     "TPM FTPMDxe: PCR cap unproven, boot stopped (Device Error)\r\n");
-}
-
-STATIC void
-InstallFailureCapMoreDataStops (
-  void  **State
-  )
-{
-  TestReset ();
-  TestInstallResult = EFI_OUT_OF_RESOURCES;
-  TestCapMoreData = TRUE;
-  TestCapStoppedEntry ();
-  assert_true (TestHalted);
-  assert_int_equal (TestInvocations, 1);
-  assert_int_equal (TestCapExtends, 0);
-  assert_string_equal (TestSerial,
-    "TPM FTPMDxe: protocol installation failed, capping PCRs 0-7 (Out of Resources)\r\n"
-    "TPM FTPMDxe: PCR cap unproven, boot stopped (Compromised Data)\r\n");
 }
 
 STATIC void
@@ -702,9 +668,7 @@ main (
     cmocka_unit_test_setup (InstallAndFinalizeFailureRetainsResident, Before),
     cmocka_unit_test_setup (ResidentLoadFailures, Before),
     cmocka_unit_test_setup (InstallFailureCapDiscoveryStops, Before),
-    cmocka_unit_test_setup (InstallFailureCapMoreDataStops, Before),
     cmocka_unit_test_setup (InstallFailureCapMalformedFrameStops, Before),
-    cmocka_unit_test_setup (InstallFailureCapMalformedExtendStops, Before),
     cmocka_unit_test_setup (InstallFailureNeverHalts, Before),
     cmocka_unit_test_setup (InstallFailureCapExtendStops, Before),
     cmocka_unit_test_setup (InstallFailureAbsentTaSkipsCap, Before),

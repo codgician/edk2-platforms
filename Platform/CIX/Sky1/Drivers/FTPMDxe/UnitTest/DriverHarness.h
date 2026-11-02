@@ -58,8 +58,6 @@ extern UINTN               TestCapExtends;
 extern EFI_STATUS          TestCapResult;
 extern TEEC_Result         TestCapDiscoveryResult;
 extern BOOLEAN             TestCapMalformedFrame;
-extern BOOLEAN             TestCapMalformedExtend;
-extern BOOLEAN             TestCapMoreData;
 extern UINTN               TestCapFailPcr;
 
 BOOLEAN

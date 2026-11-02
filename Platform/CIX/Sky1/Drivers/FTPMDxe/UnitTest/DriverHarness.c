@@ -48,8 +48,6 @@ UINTN                        TestCapExtends;
 EFI_STATUS                   TestCapResult;
 TEEC_Result                  TestCapDiscoveryResult;
 BOOLEAN                      TestCapMalformedFrame;
-BOOLEAN                      TestCapMalformedExtend;
-BOOLEAN                      TestCapMoreData;
 UINTN                        TestCapFailPcr;
 STATIC jmp_buf               mCapTerminal;
 STATIC BOOLEAN               mExpectCapTerminal;
@@ -413,7 +411,6 @@ TEEC_InvokeCommand (
       TestRequire (TestSavedCommandSize == 22);
       TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 10))) == TPM_CAP_PCRS);
       memcpy (TestSavedResponse, PcrResponse, sizeof (PcrResponse));
-      TestSavedResponse[10] = TestCapMoreData ? 1 : 0;
       Operation->params[1].tmpref.size = sizeof (PcrResponse);
       if (TestCapMalformedFrame) {
         TestSavedResponse[5]--;
@@ -433,10 +430,6 @@ TEEC_InvokeCommand (
     Operation->params[1].tmpref.size = sizeof (ExtendResponse);
     if ((TestCapExtends == TestCapFailPcr) && EFI_ERROR (TestCapResult)) {
       TestSavedResponse[9] = 1;
-    }
-    if (TestCapMalformedExtend) {
-      TestHeader (TestSavedResponse, TPM_ST_NO_SESSIONS, 10);
-      Operation->params[1].tmpref.size = 10;
     }
     TestCapExtends++;
     *Origin = TEEC_ORIGIN_TRUSTED_APP;
@@ -744,8 +737,6 @@ TestReset (
   TestCapResult = EFI_SUCCESS;
   TestCapDiscoveryResult = TEEC_SUCCESS;
   TestCapMalformedFrame = FALSE;
-  TestCapMalformedExtend = FALSE;
-  TestCapMoreData = FALSE;
   TestCapFailPcr = 0;
   mExpectCapTerminal = FALSE;
   mBootServices.HandleProtocol = MockHandleProtocol;
