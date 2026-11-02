@@ -651,6 +651,11 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution|640
   gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution|480
 
+  #
+  # RB0 64-bit window size, published by PciHostBridgeLib for the ACPI tables.
+  #
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Size|0
+
 !if $(VARIABLE_SUPPORT) == "SPI"
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageVariableSize|$(SPI_VARIABLE_SIZE)
   gEfiMdeModulePkgTokenSpaceGuid.PcdFlashNvStorageFtwWorkingSize|$(SPI_VARIABLE_SIZE)

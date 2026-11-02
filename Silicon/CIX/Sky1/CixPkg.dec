@@ -250,6 +250,9 @@
   gCixTokenSpaceGuid.PcdPcieRootPort2PeResetReverse|FALSE|BOOLEAN|0x0000024E
   gCixTokenSpaceGuid.PcdPcieRootPort3PeResetReverse|FALSE|BOOLEAN|0x0000024F
   gCixTokenSpaceGuid.PcdPcieRootPort4PeResetReverse|FALSE|BOOLEAN|0x00000250
+#PCIe RB0 (x8) 64-bit window layout: 0 Auto, 1 Stock 16 GiB, 2 32 GiB, 3 64 GiB.
+#Auto picks the smallest layout that holds the largest resizable BAR behind RB0.
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Layout|0|UINT8|0x00000251
 
   gCixTokenSpaceGuid.PcdGmacApbClockMHz|200|UINT32|0x00000281
   gCixTokenSpaceGuid.PcdGmac0ClockMHz|100|UINT32|0x00000282
@@ -467,4 +470,6 @@
 [PcdsDynamic]
   gCixTokenSpaceGuid.PcdMailbox0Initialized|FALSE|BOOLEAN|0x00000161
   gCixTokenSpaceGuid.PcdEdpDIGONDelay|120|UINT64|0x00000401
+#RB0 64-bit window size resolved by PciHostBridgeLib (0 = not resolved yet).
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Size|0|UINT64|0x00000252
 

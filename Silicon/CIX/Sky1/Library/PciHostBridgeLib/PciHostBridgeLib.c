@@ -16,8 +16,214 @@
 #include <Protocol/PciRootBridgeIo.h>
 #include <Library/PlatformPcieLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/ConfigParamsDataBlockLib.h>
+#include <Library/PciSegmentLib.h>
 #include <Protocol/ConfigParamsManageProtocol.h>
+#include <Guid/DtPlatformFormSet.h>
+
+#include "PcieWindow.h"
+
+//
+// Outbound address translation of the RB0 controller: the Cadence HPA
+// AXI-slave register bank sits at 0x9000 in the controller's "reg" space,
+// and outbound region r starts at 0x1000 + r * 0x80 within it. Read back on
+// the live x4/x2 controllers, PcieInitDxe programs each 64-bit window as one
+// region of exactly the stock 16 GiB.
+//
+#define RB0_ATU_OB_REGION(Region)  (PCI_HB0RB0_PCI_BASE + 0x9000 + 0x1000 + (Region) * 0x80)
+
+STATIC
+UINT32
+PcieWindowCfgRead32 (
+  IN VOID    *Context,
+  IN UINT8   Bus,
+  IN UINT8   Device,
+  IN UINT8   Function,
+  IN UINT16  Offset
+  )
+{
+  return PciSegmentRead32 (PCI_SEGMENT_LIB_ADDRESS (0, Bus, Device, Function, Offset));
+}
+
+STATIC
+VOID
+PcieWindowCfgWrite32 (
+  IN VOID    *Context,
+  IN UINT8   Bus,
+  IN UINT8   Device,
+  IN UINT8   Function,
+  IN UINT16  Offset,
+  IN UINT32  Value
+  )
+{
+  PciSegmentWrite32 (PCI_SEGMENT_LIB_ADDRESS (0, Bus, Device, Function, Offset), Value);
+}
+
+/**
+  Make RB0's outbound translation cover a grown 64-bit window.
+
+  @retval TRUE   The window is translated (no write was needed, or the
+                 planned writes were made).
+  @retval FALSE  The current programming is not the expected stock layout;
+                 nothing was written.
+**/
+STATIC
+BOOLEAN
+CoverRb0Window (
+  IN UINT64  Base,
+  IN UINT64  Size
+  )
+{
+  PCIE_ATU_OB_REGION  Regions[PCIE_ATU_OB_REGION_COUNT];
+  PCIE_ATU_PLAN       Plan;
+  UINTN               Index;
+  UINTN               Address;
+
+  for (Index = 0; Index < PCIE_ATU_OB_REGION_COUNT; Index++) {
+    Address                  = RB0_ATU_OB_REGION (Index);
+    Regions[Index].CpuAddr0  = MmioRead32 (Address + 0x00);
+    Regions[Index].CpuAddr1  = MmioRead32 (Address + 0x04);
+    Regions[Index].Desc0     = MmioRead32 (Address + 0x08);
+    Regions[Index].Desc1     = MmioRead32 (Address + 0x0C);
+    Regions[Index].PciAddr0  = MmioRead32 (Address + 0x10);
+    Regions[Index].PciAddr1  = MmioRead32 (Address + 0x14);
+    Regions[Index].Ctrl0     = MmioRead32 (Address + 0x18);
+  }
+
+  if (!PcieWindowPlanAtu (Regions, Base, PCIE_WINDOW_RB0_STOCK_SIZE, Size, &Plan)) {
+    return FALSE;
+  }
+
+  //
+  // Program the added region completely before it decodes (translation and
+  // descriptors first, as Linux does for this IP), then widen the stock one.
+  //
+  if (Plan.AddIndex != PCIE_ATU_NO_REGION) {
+    Address = RB0_ATU_OB_REGION (Plan.AddIndex);
+    MmioWrite32 (Address + 0x10, Plan.Add.PciAddr0);
+    MmioWrite32 (Address + 0x14, Plan.Add.PciAddr1);
+    MmioWrite32 (Address + 0x08, Plan.Add.Desc0);
+    MmioWrite32 (Address + 0x0C, Plan.Add.Desc1);
+    MmioWrite32 (Address + 0x04, Plan.Add.CpuAddr1);
+    MmioWrite32 (Address + 0x00, Plan.Add.CpuAddr0);
+    MmioWrite32 (Address + 0x18, Plan.Add.Ctrl0);
+  }
+
+  if (Plan.WidenIndex != PCIE_ATU_NO_REGION) {
+    MmioWrite32 (RB0_ATU_OB_REGION (Plan.WidenIndex), Plan.WidenCpuAddr0);
+  }
+
+  return TRUE;
+}
+
+/**
+  TRUE when the OS gets ACPI tables rather than the device tree.
+
+  The DT carries a static "ranges" for RB0 that no firmware path updates, so
+  the window only grows when ACPI describes it. DtPlatformDxe keeps the
+  choice in DtAcpiPref and falls back to PcdDefaultDtPref when it is unset;
+  any other read failure counts as DT so that the window stays stock.
+**/
+STATIC
+BOOLEAN
+IsAcpiBoot (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       Pref[4];
+  UINTN       Size;
+
+  Size   = sizeof (Pref);
+  Status = gRT->GetVariable (L"DtAcpiPref", &gDtPlatformFormSetGuid, NULL, &Size, Pref);
+  if (Status == EFI_NOT_FOUND) {
+    return (BOOLEAN)!PcdGetBool (PcdDefaultDtPref);
+  }
+
+  return (BOOLEAN)(!EFI_ERROR (Status) && (Size >= 1) && (Pref[0] == 1));
+}
+
+/**
+  Size of RB0's 64-bit window, decided once per boot.
+
+  The first caller (PciHostBridgeDxe, before PCI enumeration) resolves it
+  from PcdPcieRb0Mem64Layout and, for Auto, from the resizable BARs below
+  RB0, then publishes it in PcdPcieRb0Mem64Size; every later caller and the
+  ACPI tables use that value. With the slot empty the stock layout is used
+  and nothing is touched.
+**/
+STATIC
+UINT64
+GetRb0Mem64Size (
+  IN CONST CONFIG_PARAMS_DATA_BLOCK  *ConfigData
+  )
+{
+  CONST PCI_ROOT_BRIDGE_RESOURCE_APPETURE  *Rb0;
+  PCIE_WINDOW_CFG                          Cfg;
+  PCIE_WINDOW_LAYOUT                       Forced;
+  PCIE_WINDOW_LAYOUT                       Layout;
+  UINT64                                   MaxRebar;
+  UINT64                                   Size;
+  EFI_STATUS                               Status;
+
+  Size = PcdGet64 (PcdPcieRb0Mem64Size);
+  if (Size != 0) {
+    return Size;
+  }
+
+  Rb0      = &mPcieResourceAppeture[0];
+  Layout   = PcieWindowLayoutStock16G;
+  MaxRebar = 0;
+
+  if (ConfigData->Pcie.PcieLinkUpStatus[0] && IsAcpiBoot () &&
+      (Rb0->MemAbove4G == PCIE_WINDOW_RB0_MEM64_BASE) &&
+      (Rb0->MemAbove4GSize == PCIE_WINDOW_RB0_STOCK_SIZE) &&
+      (Rb0->PMemAbove4G == PCIE_WINDOW_RB0_MEM64_BASE) &&
+      (Rb0->PMemAbove4GSize == PCIE_WINDOW_RB0_STOCK_SIZE))
+  {
+    Forced = (PCIE_WINDOW_LAYOUT)FixedPcdGet8 (PcdPcieRb0Mem64Layout);
+    if ((UINTN)Forced >= PcieWindowLayoutCount) {
+      DEBUG ((DEBUG_ERROR, "%a: invalid PcdPcieRb0Mem64Layout %u, using Auto\n", __func__, Forced));
+      Forced = PcieWindowLayoutAuto;
+    }
+
+    if (Forced == PcieWindowLayoutAuto) {
+      Cfg.Read32  = PcieWindowCfgRead32;
+      Cfg.Write32 = PcieWindowCfgWrite32;
+      Cfg.Context = NULL;
+      MaxRebar    = PcieWindowHierarchyMaxRebar (&Cfg, (UINT8)Rb0->BusBase, (UINT8)Rb0->BusLimit);
+    }
+
+    Layout = PcieWindowSelect (Forced, MaxRebar);
+
+    //
+    // A window the controller does not translate would be a lie to the OS;
+    // fall back to smaller layouts until one is covered.
+    //
+    while ((Layout > PcieWindowLayoutStock16G) &&
+           !CoverRb0Window (PCIE_WINDOW_RB0_MEM64_BASE, PcieWindowLayoutSize (Layout)))
+    {
+      DEBUG ((DEBUG_ERROR, "%a: RB0 translation cannot cover layout %u\n", __func__, Layout));
+      Layout--;
+    }
+  }
+
+  Size = PcieWindowLayoutSize (Layout);
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: largest resizable BAR 0x%lx, RB0 64-bit window 0x%lx..0x%lx\n",
+    __func__,
+    MaxRebar,
+    PCIE_WINDOW_RB0_MEM64_BASE,
+    PCIE_WINDOW_RB0_MEM64_BASE + Size - 1
+    ));
+
+  Status = PcdSet64S (PcdPcieRb0Mem64Size, Size);
+  ASSERT_EFI_ERROR (Status);
+
+  return Size;
+}
 
 #define EFI_PCI_SUPPORT  (EFI_PCI_ATTRIBUTE_ISA_MOTHERBOARD_IO |  \
                            EFI_PCI_ATTRIBUTE_IDE_SECONDARY_IO | \
@@ -186,6 +392,8 @@ PciHostBridgeGetRootBridges (
   PCI_ROOT_BRIDGE                    *Bridges;
   CONFIG_PARAMS_DATA_BLOCK           *ConfigData = NULL;
   CIX_CONFIG_PARAMS_MANAGE_PROTOCOL  *ConfigManage;
+  PCI_ROOT_BRIDGE_RESOURCE_APPETURE  Appeture;
+  UINT64                             Rb0Mem64Size;
 
   // Set default value to 0 in case we got any error.
   *Count = 0;
@@ -213,12 +421,23 @@ PciHostBridgeGetRootBridges (
     return NULL;
   }
 
+  Rb0Mem64Size = GetRb0Mem64Size (ConfigData);
+
   for (Loop = 0; Loop < PCIE_MAX_ROOTBRIDGE; Loop++) {
     if (ConfigData->Pcie.PcieLinkUpStatus[Loop] == FALSE) {
       continue;
     }
 
-    Status = ConstructRootBridge (&Bridges[*Count], &mPcieResourceAppeture[Loop], Loop);
+    CopyMem (&Appeture, &mPcieResourceAppeture[Loop], sizeof (Appeture));
+    if ((Loop == 0) &&
+        (Appeture.MemAbove4G == PCIE_WINDOW_RB0_MEM64_BASE) &&
+        (Appeture.PMemAbove4G == PCIE_WINDOW_RB0_MEM64_BASE))
+    {
+      Appeture.MemAbove4GSize  = Rb0Mem64Size;
+      Appeture.PMemAbove4GSize = Rb0Mem64Size;
+    }
+
+    Status = ConstructRootBridge (&Bridges[*Count], &Appeture, Loop);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "[%a:%d] - ConstructRootBridge failed!\n", __FUNCTION__, __LINE__));
       continue;

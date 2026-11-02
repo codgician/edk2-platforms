@@ -14,10 +14,13 @@
 
 [Sources]
   PciHostBridgeLib.c
+  PcieWindow.c
+  PcieWindow.h
 
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
   Silicon/CIX/Sky1/CixPkg.dec
 
 [LibraryClasses]
@@ -25,10 +28,26 @@
   BaseMemoryLib
   DebugLib
   DevicePathLib
+  IoLib
   MemoryAllocationLib
   PcdLib
+  PciSegmentLib
   UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
   PlatformPcieLib
 
 [Protocols]
   gCixConfigParamsManageProtocolGuid
+
+[Guids]
+  gDtPlatformFormSetGuid                ## SOMETIMES_CONSUMES ## Variable:L"DtAcpiPref"
+
+[FixedPcd]
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Layout
+
+[Pcd]
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Size
+  gEmbeddedTokenSpaceGuid.PcdDefaultDtPref
+
+[Depex]
+  gEfiVariableArchProtocolGuid
