@@ -54,6 +54,10 @@ Tpm2DeviceLibConstructor (
                     &VarSize,
                     &PlatformSetupVar
                     );
+    if (!EFI_ERROR (Status) && (VarSize != sizeof (PLATFORM_SETUP_DATA))) {
+      Status = EFI_BAD_BUFFER_SIZE;
+    }
+
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
       return Status;
@@ -111,6 +115,10 @@ DTpmSwitchFTpm (
                   &VarSize,
                   &PlatformSetupVar
                   );
+  if (!EFI_ERROR (Status) && (VarSize != sizeof (PLATFORM_SETUP_DATA))) {
+    Status = EFI_BAD_BUFFER_SIZE;
+  }
+
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
     return Status;
