@@ -13,18 +13,6 @@ STATIC UINT32             mExpectedBanks;
 STATIC BOOLEAN            mValid;
 STATIC UINT8              mFailPcr;
 
-BOOLEAN EFIAPI
-IsZeroBuffer (CONST VOID *Buffer, UINTN Size)
-{
-  CONST UINT8 *Bytes = Buffer;
-  while (Size-- != 0) {
-    if (*Bytes++ != 0) {
-      return FALSE;
-    }
-  }
-  return TRUE;
-}
-
 EFI_STATUS EFIAPI
 Tpm2GetCapabilityPcrs (TPML_PCR_SELECTION *Pcrs)
 {

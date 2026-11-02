@@ -15,17 +15,6 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <stdarg.h>
 
-// Only architecture/string base adapters are mocked; formatting is BasePrintLib.
-UINT64 EFIAPI DivU64x32Remainder (UINT64 Dividend, UINT32 Divisor, UINT32 *Remainder) {
-  if (Remainder != NULL) { *Remainder = Dividend % Divisor; }
-  return Dividend / Divisor;
-}
-UINTN EFIAPI StrnLenS (CONST CHAR16 *String, UINTN MaxSize) {
-  UINTN Length;
-  for (Length = 0; Length < MaxSize && String[Length] != 0; Length++) { }
-  return Length;
-}
-
 UINTN TestDiagnosticCount;
 CHAR8 TestDiagnostic[512];
 EFI_SYSTEM_TABLE *gST;
@@ -131,14 +120,6 @@ EFI_STATUS EFIAPI GetSectionFromAnyFv (CONST EFI_GUID *Guid, EFI_SECTION_TYPE Ty
   TestFvCalls++;
   return TestFvHook (Guid, Image, Size);
 }
-// BaseLib architecture helpers do not execute privileged instructions here.
-UINT16 EFIAPI SwapBytes16 (UINT16 V) { return __builtin_bswap16 (V); }
-UINT32 EFIAPI SwapBytes32 (UINT32 V) { return __builtin_bswap32 (V); }
-UINT16 EFIAPI ReadUnaligned16 (CONST UINT16 *P) { UINT16 V; memcpy (&V, P, 2); return V; }
-UINT32 EFIAPI ReadUnaligned32 (CONST UINT32 *P) { UINT32 V; memcpy (&V, P, 4); return V; }
-UINT16 EFIAPI WriteUnaligned16 (UINT16 *P, UINT16 V) { memcpy (P, &V, 2); return V; }
-UINT32 EFIAPI WriteUnaligned32 (UINT32 *P, UINT32 V) { memcpy (P, &V, 4); return V; }
-
 VOID TestResetServices (VOID) {
   TestShmBase = (UINTN)TestPool;
   TestShmSize = TEST_POOL_SIZE;

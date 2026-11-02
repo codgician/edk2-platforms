@@ -211,27 +211,6 @@ EfiCreateEventReadyToBootEx (
   return TestReadyEventResult;
 }
 
-UINT64 EFIAPI
-DivU64x32Remainder (UINT64 Dividend, UINT32 Divisor, UINT32 *Remainder)
-{
-  if (Remainder != NULL) {
-    *Remainder = Dividend % Divisor;
-  }
-
-  return Dividend / Divisor;
-}
-
-UINTN EFIAPI
-StrnLenS (CONST CHAR16 *String, UINTN MaxSize)
-{
-  UINTN  Length;
-
-  for (Length = 0; (Length < MaxSize) && (String[Length] != 0); Length++) {
-  }
-
-  return Length;
-}
-
 EFI_STATUS
 OpteeClientApiInitialize (
   EFI_HANDLE  ImageHandle
@@ -398,70 +377,6 @@ CpuDeadLoop (
     longjmp (mCapTerminal, 1);
   }
   abort ();
-}
-
-UINT16 EFIAPI
-SwapBytes16 (
-  UINT16  Value
-  )
-{
-  return __builtin_bswap16 (Value);
-}
-
-UINT32 EFIAPI
-SwapBytes32 (
-  UINT32  Value
-  )
-{
-  return __builtin_bswap32 (Value);
-}
-
-UINT16 EFIAPI
-ReadUnaligned16 (
-  CONST UINT16  *Buffer
-  )
-{
-  CONST volatile UINT8  *Bytes = (CONST volatile UINT8 *)Buffer;
-
-  return (UINT16)Bytes[0] | ((UINT16)Bytes[1] << 8);
-}
-
-UINT32 EFIAPI
-ReadUnaligned32 (
-  CONST UINT32  *Buffer
-  )
-{
-  CONST volatile UINT8  *Bytes = (CONST volatile UINT8 *)Buffer;
-
-  return (UINT32)Bytes[0] | ((UINT32)Bytes[1] << 8) |
-         ((UINT32)Bytes[2] << 16) | ((UINT32)Bytes[3] << 24);
-}
-UINT16 EFIAPI
-WriteUnaligned16 (UINT16 *Buffer, UINT16 Value)
-{
-  volatile UINT8  *Bytes = (volatile UINT8 *)Buffer;
-
-  Bytes[0] = (UINT8)Value;
-  Bytes[1] = (UINT8)(Value >> 8);
-  return Value;
-}
-
-UINT32 EFIAPI
-WriteUnaligned32 (UINT32 *Buffer, UINT32 Value)
-{
-  volatile UINT8  *Bytes = (volatile UINT8 *)Buffer;
-
-  Bytes[0] = (UINT8)Value;
-  Bytes[1] = (UINT8)(Value >> 8);
-  Bytes[2] = (UINT8)(Value >> 16);
-  Bytes[3] = (UINT8)(Value >> 24);
-  return Value;
-}
-
-BOOLEAN EFIAPI
-IsZeroBuffer (CONST VOID *Buffer, UINTN Length)
-{
-  return TestAllZero (Buffer, Length);
 }
 
 BOOLEAN

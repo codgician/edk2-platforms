@@ -355,52 +355,6 @@ Print (
   abort ();
 }
 
-UINT64 EFIAPI
-DivU64x32Remainder (UINT64 Dividend, UINT32 Divisor, UINT32 *Remainder)
-{
-  if (Remainder != NULL) {
-    *Remainder = Dividend % Divisor;
-  }
-  return Dividend / Divisor;
-}
-
-UINTN EFIAPI
-StrnLenS (CONST CHAR16 *String, UINTN MaxSize)
-{
-  UINTN Length;
-  for (Length = 0; (Length < MaxSize) && (String[Length] != 0); Length++) {
-  }
-  return Length;
-}
-
-BOOLEAN EFIAPI
-IsZeroBuffer (CONST VOID *Buffer, UINTN Size)
-{
-  CONST UINT8 *Bytes = Buffer;
-  while (Size-- != 0) {
-    if (*Bytes++ != 0) {
-      return FALSE;
-    }
-  }
-  return TRUE;
-}
-
-UINT16 EFIAPI
-ReadUnaligned16 (CONST UINT16 *Buffer)
-{
-  UINT16 Value;
-  CopyMem (&Value, Buffer, sizeof (Value));
-  return Value;
-}
-
-UINT32 EFIAPI
-ReadUnaligned32 (CONST UINT32 *Buffer)
-{
-  UINT32 Value;
-  CopyMem (&Value, Buffer, sizeof (Value));
-  return Value;
-}
-
 /* Stop at the actual first outside-trust-set dispatch, not at a mock gate. */
 EFI_STATUS EFIAPI
 EfiBootManagerDispatchDeferredImages (
