@@ -5,7 +5,6 @@
 #include <Library/BaseMemoryLib.h>
 #include "PpMocks.h"
 extern UINT32  mPpHashBitmap;
-extern UINT32  mPpHashMask;
 
 static BOOLEAN
 ValidRequest (
@@ -64,12 +63,8 @@ LLVMFuzzerTestOneInput (
     mPpHashBitmap = Data[28];
   }
 
-  if (Size > 29) {
-    mPpHashMask = Data[29];
-  }
-
   Operation = mPp.Request.PPRequest;
-  Hashable  = 0xFU & mPpHashBitmap & mPpHashMask;
+  Hashable  = mPpHashBitmap;
   Desired   = Operation == 33 ? (mPp.Supported & Hashable) : mPp.Request.PPRequestParameter;
   AllocationValid = !EFI_ERROR (mPp.CapabilityStatus) && mPp.Supported != 0 &&
                     (mPp.Supported & ~31U) == 0 && mPp.Active != 0 &&

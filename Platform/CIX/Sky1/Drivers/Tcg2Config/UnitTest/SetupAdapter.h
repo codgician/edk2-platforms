@@ -6,7 +6,6 @@
 #include <Library/IoLib.h>
 #include <Library/Tpm2CommandLib.h>
 static UINT32 TestPcdTcg2HashAlgorithmBitmap;
-static UINT32 TestPcdTpm2HashMask;
 #undef PcdGet8
 #undef PcdGet32
 #undef PcdGet64
@@ -61,8 +60,6 @@ static VOID ResetSetup(VOID) {
   TestPrivate.Signature = TCG2_CONFIG_PRIVATE_DATA_SIGNATURE;
   TestPrivate.PCRBanksDesired = 2;
   TestPrivate.ProtocolCapability.HashAlgorithmBitmap = 3;
-  TestPcdTcg2HashAlgorithmBitmap = 0x1F;
-  TestPcdTpm2HashMask = 0x1F;
   mTcg2ConfigPrivateDate = &TestPrivate;
   mCurrentPpRequest = 0;
   SubmitCalls = 0;

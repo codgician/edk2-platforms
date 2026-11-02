@@ -13,7 +13,6 @@
 #include <Library/Tcg2PhysicalPresenceLib.h>
 #include <Library/UefiLib.h>
 #include "PpPolicy.h"
-#include "PpHash.h"
 
 #define PP_PCR_BANK_MASK    (EFI_TCG2_BOOT_HASH_ALG_SHA1 | EFI_TCG2_BOOT_HASH_ALG_SHA256 | EFI_TCG2_BOOT_HASH_ALG_SHA384 | EFI_TCG2_BOOT_HASH_ALG_SHA512 | EFI_TCG2_BOOT_HASH_ALG_SM3_256)
 #define PP_CONFIRM_TIMEOUT  (30 * 10000000ULL)
@@ -187,7 +186,7 @@ PpGetAllocation (
     return Status;
   }
 
-  Hashable = PpHashableBanks ();
+  Hashable = PcdGet32 (PcdTcg2HashAlgorithmBitmap);
   *Desired = (Operation == TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS) ? (*Supported & Hashable) : Parameter;
   if ((*Supported == 0) || ((*Supported & ~PP_PCR_BANK_MASK) != 0) ||
       (Active == 0) || ((Active & ~*Supported) != 0) ||

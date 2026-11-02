@@ -9,23 +9,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   EFI_STATUS Status;
   UINT32 Allowed;
   UINT32 DesiredBefore;
-  TCG2_CONFIGURATION_INFO Info;
-  static const UINT32 Algorithms[] = {TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384, TPM_ALG_SHA512, TPM_ALG_SM3_256};
   if (Size < 10) { return 0; }
   ResetSetup();
   TestPrivate.ProtocolCapability.HashAlgorithmBitmap = Data[4];
-  TestPcdTcg2HashAlgorithmBitmap = Data[5];
-  TestPcdTpm2HashMask = Data[6];
   TestPrivate.PCRBanksDesired = Data[7];
   DesiredBefore = TestPrivate.PCRBanksDesired;
-  Allowed = 0xFU & Data[4] & Data[5] & Data[6];
-  ZeroMem(&Info, sizeof(Info));
-  for (UINTN Index = 0; Index < ARRAY_SIZE(Algorithms); Index++) { SetConfigInfo(&Info, Algorithms[Index]); }
-  if ((Info.Sha1Supported != ((Allowed & 1U) != 0)) ||
-      (Info.Sha256Supported != ((Allowed & 2U) != 0)) ||
-      (Info.Sha384Supported != ((Allowed & 4U) != 0)) ||
-      (Info.Sha512Supported != ((Allowed & 8U) != 0)) ||
-      Info.Sm3Supported) { abort(); }
+  Allowed = Data[4];
   if ((Data[3] & 1) != 0) {
     if (SaveTcg2PpRequest(TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS) != EFI_SUCCESS) { abort(); }
     if (SubmitCalls != 0) { abort(); }

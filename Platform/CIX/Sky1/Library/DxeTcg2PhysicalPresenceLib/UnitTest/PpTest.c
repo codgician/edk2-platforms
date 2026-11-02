@@ -426,23 +426,14 @@ allocation_policy_boundaries (
   void  **State
   )
 {
-  UINTN  Mode;
-
-  for (Mode = 0; Mode < 2; ++Mode) {
-    PpReset (33, 0);
-    mPp.Accept = TRUE;
-    if (Mode == 0) {
-      mPpHashBitmap = 2;
-    } else {
-      mPpHashMask = 2;
-    }
-
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, 1);
-    assert_int_equal (mPp.Trace[7], 2);
-    assert_int_equal (mPp.KeyReads, 1);
-    assert_int_equal (mPp.Resets, 1);
-  }
+  PpReset (33, 0);
+  mPp.Accept    = TRUE;
+  mPpHashBitmap = 2;
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.TraceCount, 1);
+  assert_int_equal (mPp.Trace[7], 2);
+  assert_int_equal (mPp.KeyReads, 1);
+  assert_int_equal (mPp.Resets, 1);
 
   PpReset (33, 0);
   mPp.Supported = 0x10;
@@ -455,7 +446,7 @@ allocation_policy_boundaries (
   assert_int_equal (mPp.Request.PPResponse, TCG_PP_OPERATION_RESPONSE_BIOS_FAILURE);
 
   PpReset (23, 4);
-  mPpHashMask = 2;
+  mPpHashBitmap = 2;
   mPp.Accept = TRUE;
   assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
   Tcg2PhysicalPresenceLibProcessRequest (NULL);

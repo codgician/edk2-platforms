@@ -13,7 +13,6 @@
 PP_FIXTURE                             mPp;
 UINT32                                 mPpiMemory[3];
 UINT32                                 mPpHashBitmap;
-UINT32                                 mPpHashMask;
 EFI_GUID                               gEfiTcg2PhysicalPresenceGuid     = EFI_TCG2_PHYSICAL_PRESENCE_DATA_GUID;
 EFI_GUID                               gEdkiiVariablePolicyProtocolGuid = EDKII_VARIABLE_POLICY_PROTOCOL_GUID;
 static EDKII_VARIABLE_POLICY_PROTOCOL  mPolicy;
@@ -473,8 +472,7 @@ PpReset (
 {
   ZeroMem (&mPp, sizeof (mPp));
   ZeroMem (mPpiMemory, sizeof (mPpiMemory));
-  mPpHashBitmap                  = MAX_UINT32;
-  mPpHashMask                    = 0x1f;
+  mPpHashBitmap                  = 0xF;
   mPp.Request.PPRequest           = Request;
   mPp.Request.PPRequestParameter  = Parameter;
   mPp.Flags.PPFlags               = 0x700e2;
