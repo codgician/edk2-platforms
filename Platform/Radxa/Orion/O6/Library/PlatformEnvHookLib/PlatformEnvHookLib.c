@@ -592,6 +592,10 @@ FarmFunctionControl (
                      &VarSize,
                      &NetworkStack
                      );
+    if (!EFI_ERROR (Status) && (VarSize != sizeof (NETWORK_STACK))) {
+      Status = EFI_BAD_BUFFER_SIZE;
+    }
+
     if (EFI_ERROR (Status)) {
       DebugPrint (DEBUG_ERROR, "[%a] [%d]Get Network Stack Variable fail.\n", __FUNCTION__, __LINE__);
       return Status;
@@ -623,6 +627,10 @@ FarmFunctionControl (
                      &PlatformSetupVar
                      );
     PlatformSetupVar.SocWatchdogTimer = 0;
+    if (!EFI_ERROR (Status) && (VarSize != sizeof (PLATFORM_SETUP_DATA))) {
+      Status = EFI_BAD_BUFFER_SIZE;
+    }
+
     if (EFI_ERROR (Status)) {
       DebugPrint (DEBUG_ERROR, "[%a] [%d]Get Platform Setup Variable fail.\n", __FUNCTION__, __LINE__);
       return Status;
@@ -677,6 +685,10 @@ FarmFunctionControl (
                        &VarSize,
                        &NetworkStack
                        );
+      if (!EFI_ERROR (Status) && (VarSize != sizeof (NETWORK_STACK))) {
+        Status = EFI_BAD_BUFFER_SIZE;
+      }
+
       if (EFI_ERROR (Status)) {
         DebugPrint (DEBUG_ERROR, "[%a] [%d]Get Network Stack Variable fail.\n", __FUNCTION__, __LINE__);
         return Status;
@@ -708,6 +720,10 @@ FarmFunctionControl (
                        &PlatformSetupVar
                        );
       PlatformSetupVar.SocWatchdogTimer = FixedPcdGet8 (PcdSocWatchdogTimer);
+      if (!EFI_ERROR (Status) && (VarSize != sizeof (PLATFORM_SETUP_DATA))) {
+        Status = EFI_BAD_BUFFER_SIZE;
+      }
+
       if (EFI_ERROR (Status)) {
         DebugPrint (DEBUG_ERROR, "[%a] [%d]Get Platform Setup Variable fail.\n", __FUNCTION__, __LINE__);
         return Status;
