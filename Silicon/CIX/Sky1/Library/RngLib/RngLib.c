@@ -63,14 +63,9 @@ GetRandomBytes (
     CopyMem (Buffer, Response.Trng, Size);
   }
 
-  // Volatile writes keep both owned scratch erasures under optimization.
+  // Volatile writes keep the response erasure under optimization.
   Erase = (volatile UINT8 *)&Response;
   while (Erase < (volatile UINT8 *)(&Response + 1)) {
-    *Erase++ = 0;
-  }
-
-  Erase = (volatile UINT8 *)&Params;
-  while (Erase < (volatile UINT8 *)(&Params + 1)) {
     *Erase++ = 0;
   }
 
