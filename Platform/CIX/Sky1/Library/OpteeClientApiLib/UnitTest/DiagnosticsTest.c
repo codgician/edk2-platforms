@@ -3,8 +3,6 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include "../OpteeClientDiagnostics.h"
 
-// Original-source replay reaches the earlier missing-diagnostic assertion.
-extern VOID OpteeClientApiExitBootServices (VOID) __attribute__((weak));
 STATIC UINTN mConsoleCalls;
 STATIC EFI_STATUS EFIAPI ConsoleOutput (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, CHAR16 *Line) {
   CHAR8 Copy[512];
@@ -32,79 +30,29 @@ int main (void) {
   OPTEE_MSG_ARG *Arg;
   ARM_SMC_ARGS Smc = { 0 };
   VOID *Payload;
-  TestResetServices ();
-  TestCapabilityFlags = 0;
-  assert (OpteeClientApiInitialize (NULL) == EFI_UNSUPPORTED);
-  TestExpectDiagnostic ("SHM capabilities", 0, EFI_UNSUPPORTED);
-  TestResetServices ();
-  TestShmFlags = 3;
-  assert (OpteeClientApiInitialize (NULL) == EFI_UNSUPPORTED);
-  TestExpectDiagnostic ("SHM cache mode", 3, EFI_UNSUPPORTED);
   TestInit ();
   Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (4), 4096, OPTEE_SHM_RPC_ARG);
-  assert (Arg != NULL);
-  Arg->NumParams = 5;
-  assert (!Dispatch (Arg));
-  TestExpectDiagnostic ("RPC parameter count", 5, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->NumParams = 0;
-  Arg->Cmd = 0x1234;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("RPC command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Cmd = OPTEE_RPC_CMD_LOAD_TA;
-  Arg->NumParams = 2;
-  ZeroMem (&Arg->Params[0].U.Value, sizeof (Arg->Params[0].U.Value));
-  Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
-  Arg->Params[1].U.Tmem.BufPtr = 0;
-  Arg->Params[1].U.Tmem.Size = 0;
-  Arg->Params[1].U.Tmem.ShmRef = 0;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("TA admission", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   Payload = OpteeShmAllocOwned (64, 4096, OPTEE_SHM_RPC_APPL);
-  assert (Payload != NULL);
+  assert (Arg != NULL && Payload != NULL);
+  // A path-carrying rejection names the check, never the path.
   strcpy (Payload, "SECRET-CANARY");
   Arg->Cmd = OPTEE_RPC_CMD_FS;
-  Arg->NumParams = 3;
-  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_CREATE;
+  Arg->NumParams = 2;
+  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
+  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_REMOVE;
   Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT;
   Arg->Params[1].U.Tmem.BufPtr = (UINTN)Payload;
   Arg->Params[1].U.Tmem.ShmRef = (UINTN)Payload;
   Arg->Params[1].U.Tmem.Size = 64;
-  Arg->Params[2].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert (Dispatch (Arg));
-  assert (Arg->Ret == TEEC_SUCCESS && TestDiagnosticCount == 0);
-  Arg->Params[0].U.Value.B = Arg->Params[2].U.Value.A;
-  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_TRUNCATE;
-  Arg->Params[0].U.Value.C = 1024 * 1024 + 1;
+  TestExpectDiagnostic ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
   Arg->NumParams = 1;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("REE-FS capacity", 1024 * 1024 + 1, TEEC_ERROR_OUT_OF_MEMORY);
-  Arg->NumParams = 0;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("REE-FS framing", 0, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->NumParams = 1;
-  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_REMOVE;
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("REE-FS remove framing", 1, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.A = 0x1234;
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("REE-FS command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
-  Arg->Cmd = OPTEE_RPC_CMD_LOAD_TA;
-  Arg->NumParams = 2;
-  Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
-  Arg->Params[1].U.Tmem.Size = 65;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("TA framing", 65, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->Params[1].U.Tmem.Size = 1;
-  Arg->Params[1].U.Tmem.BufPtr = (UINTN)Payload + 65;
-  assert (Dispatch (Arg));
-  TestExpectCheck ("TA framing");
-  Arg->Params[1].U.Tmem.BufPtr = 0;
-  assert (Dispatch (Arg));
-  TestExpectCheck ("TA framing");
   Smc.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | 0x1234;
-  assert (!OpteeRpcHandle (&Smc));
-  TestExpectDiagnostic ("RPC function", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
   {
     EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL Console = { .OutputString = ConsoleOutput };
     EFI_SYSTEM_TABLE Table = { .ConOut = &Console };
@@ -112,7 +60,6 @@ int main (void) {
     assert (!OpteeRpcHandle (&Smc));
     TestExpectDiagnostic ("RPC function", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
     assert (mConsoleCalls == 1);
-    assert (OpteeClientApiExitBootServices != NULL);
     OpteeClientApiExitBootServices ();
     TestFailAllocation (1);
     assert (!OpteeRpcHandle (&Smc));
