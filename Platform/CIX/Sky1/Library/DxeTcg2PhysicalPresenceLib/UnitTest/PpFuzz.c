@@ -40,21 +40,13 @@ LLVMFuzzerTestOneInput (
 
   PpReset (0, 0);
   mPp.RequestSize      = Data[0] % (sizeof (mPp.Request) + 2);
-  mPp.FlagsSize        = Data[1] % (sizeof (mPp.Flags) + 2);
   mPp.RequestAttr      = (Data[2] & 1) ? PP_ATTR : Data[2];
-  mPp.FlagsAttr        = (Data[3] & 1) ? PP_ATTR : Data[3];
   mPp.Accept           = (Data[4] & 1) != 0;
   mPp.Timeout          = (Data[4] & 2) != 0;
-  mPp.PolicyAvailable  = (Data[4] & 4) != 0;
-  mPp.PolicyEnabled    = (Data[4] & 8) != 0;
-  mPp.Locked           = (Data[4] & 16) != 0;
   mPp.RequestRead      = (Data[5] & 1) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
-  mPp.FlagsRead        = (Data[5] & 2) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
   mPp.CapabilityStatus = (Data[5] & 4) ? EFI_SUCCESS : EFI_DEVICE_ERROR;
   mPp.Supported        = Data[6] & 31U;
   mPp.Active           = Data[7] & mPp.Supported;
-  mPp.PolicyMismatch   = (Data[5] >> 3) % 10;
-  CopyMem (&mPp.Flags, Data + 8, MIN (Size - 8, sizeof (mPp.Flags)));
   if (Size > 12) {
     CopyMem (&mPp.Request, Data + 12, MIN (Size - 12, sizeof (mPp.Request)));
   }
@@ -68,9 +60,8 @@ LLVMFuzzerTestOneInput (
   Desired   = Operation == 33 ? (mPp.Supported & Hashable) : mPp.Request.PPRequestParameter;
   AllocationValid = !EFI_ERROR (mPp.CapabilityStatus) && mPp.Active != 0 && Desired != 0 &&
                     (Desired & ~(mPp.Supported & Hashable)) == 0;
-  Valid = ValidRequest () && mPp.RequestSize == sizeof (mPp.Request) && mPp.FlagsSize == sizeof (mPp.Flags) &&
-          mPp.RequestAttr == PP_ATTR && mPp.FlagsAttr == PP_ATTR && (mPp.Flags.PPFlags & ~0x703f2U) == 0 &&
-          mPp.PolicyAvailable && mPp.PolicyEnabled && mPp.Locked && mPp.PolicyMismatch == 0 && !EFI_ERROR (mPp.RequestRead) && !EFI_ERROR (mPp.FlagsRead);
+  Valid = ValidRequest () && mPp.RequestSize == sizeof (mPp.Request) &&
+          mPp.RequestAttr == PP_ATTR && !EFI_ERROR (mPp.RequestRead);
   if (Operation == 23 || Operation == 33) {
     Valid = Valid && AllocationValid;
   }

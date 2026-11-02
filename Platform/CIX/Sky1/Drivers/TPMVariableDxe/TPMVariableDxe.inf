@@ -16,8 +16,6 @@
 
 [Sources]
   TPMVariableDxe.c
-  ../../Library/DxeTcg2PhysicalPresenceLib/PpPolicy.h
-  ../../Library/DxeTcg2PhysicalPresenceLib/PpStatus.h
 
 [Packages]
   ArmPkg/ArmPkg.dec
@@ -28,25 +26,26 @@
   SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
+  MemoryAllocationLib
+  UefiLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiRuntimeServicesTableLib
-  BaseLib
-  PcdLib
-  MemoryAllocationLib
   BaseMemoryLib
   DebugLib
   PrintLib
-  SerialPortLib
-  UefiLib
+  HiiLib
+  HobLib
+  Tcg2PpVendorLib
 
 [Guids]
   gEfiTcg2PhysicalPresenceGuid
 [Protocols]
-  gEdkiiVariablePolicyProtocolGuid     ## CONSUMES
+  gEfiTcg2ProtocolGuid                 ## SOMETIMES_CONSUMES
+  gEdkiiVariableLockProtocolGuid       ## SOMETIMES_CONSUMES
 
 [Pcd]
   gEfiSecurityPkgTokenSpaceGuid.PcdTcg2PhysicalPresenceFlags       ## SOMETIMES_CONSUMES
 
 [Depex]
-  gEdkiiVariablePolicyProtocolGuid
+  TRUE

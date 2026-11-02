@@ -1107,10 +1107,7 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
     <PcdsFixedAtBuild>
       gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
   }
-  Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf {
-    <PcdsFixedAtBuild>
-      gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0x040D0000
-  }
+  Platform/CIX/Sky1/Drivers/TPMVariableDxe/TPMVariableDxe.inf
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
       HashLib|SecurityPkg/Library/HashLibBaseCryptoRouter/HashLibBaseCryptoRouterDxe.inf

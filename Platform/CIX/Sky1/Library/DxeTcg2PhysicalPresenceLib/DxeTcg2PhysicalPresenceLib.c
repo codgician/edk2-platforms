@@ -7,13 +7,21 @@
 **/
 
 #include <PiDxe.h>
+#include <Guid/Tcg2PhysicalPresenceData.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/DebugLib.h>
 #include <Library/PcdLib.h>
 #include <Library/HobLib.h>
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/Tpm2CommandLib.h>
 #include <Library/Tcg2PhysicalPresenceLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
-#include "PpPolicy.h"
+#include <Library/UefiRuntimeServicesTableLib.h>
 
+#define PP_VARIABLE_ATTRIBUTES  (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS)
+#define PP_REQUIRED_FLAGS       0x000300F2U
 #define PP_PCR_BANK_MASK    (EFI_TCG2_BOOT_HASH_ALG_SHA1 | EFI_TCG2_BOOT_HASH_ALG_SHA256 | EFI_TCG2_BOOT_HASH_ALG_SHA384 | EFI_TCG2_BOOT_HASH_ALG_SHA512 | EFI_TCG2_BOOT_HASH_ALG_SM3_256)
 #define PP_CONFIRM_TIMEOUT  (30 * 10000000ULL)
 
@@ -360,7 +368,7 @@ PpExecute (
   return Status;
 }
 
-/** Execute a pending request only after schema, policy and console checks.
+/** Execute a pending request only after schema and console checks.
 
   @param[in] PlatformAuth  Optional platform authorization; NULL is supported.
 **/
@@ -370,29 +378,18 @@ Tcg2PhysicalPresenceLibProcessRequest (
   IN TPM2B_AUTH  *PlatformAuth OPTIONAL
   )
 {
-  EFI_STATUS                        Status;
-  EFI_TCG2_PHYSICAL_PRESENCE        Request;
-  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  Flags;
-  UINT32                            Operation;
-  UINT32                            Supported;
-  UINT32                            Desired;
-  BOOLEAN                           NoChange;
-  BOOLEAN                           Accepted;
-  TPMC                              *Mailbox;
+  EFI_STATUS                  Status;
+  EFI_TCG2_PHYSICAL_PRESENCE  Request;
+  UINT32                      Operation;
+  UINT32                      Supported;
+  UINT32                      Desired;
+  BOOLEAN                     NoChange;
+  BOOLEAN                     Accepted;
+  TPMC                        *Mailbox;
+  CHAR8                       Line[128];
+  UINTN                       Length;
 
   if (GetBootModeHob () == BOOT_ON_S4_RESUME) {
-    return;
-  }
-
-  Status = PpVerifyFlagsLock ();
-  if (EFI_ERROR (Status)) {
-    // The verifier emits the precise reason before refusing authorization.
-    return;
-  }
-
-  Status = PpReadFlags (&Flags);
-  if (EFI_ERROR (Status)) {
-    PpUnavailable ("flags variable invalid or unreadable", Status);
     return;
   }
 
@@ -404,7 +401,13 @@ Tcg2PhysicalPresenceLibProcessRequest (
   }
 
   if (EFI_ERROR (Status)) {
-    PpUnavailable ("request variable invalid or unreadable", Status);
+    // SerialPortLib, not DEBUG: RELEASE drops DEBUG, and the serial path works before ConOut exists.
+    Length = AsciiSPrint (Line, sizeof (Line), "TPM PP: request variable invalid or unreadable, skipping requests (%r)\r\n", Status);
+    SerialPortWrite ((UINT8 *)Line, Length);
+    if (gST->ConOut != NULL) {
+      Print (L"%a", Line);
+    }
+
     return;
   }
 
@@ -450,10 +453,10 @@ Tcg2PhysicalPresenceLibProcessRequest (
   }
 }
 
-/** Invalid or unprotected input must not drive confirmation UI.
+/** Invalid input must not drive confirmation UI.
 
   @retval TRUE   A valid state-changing request requires console confirmation.
-  @retval FALSE  No action, matching allocation, invalid schema or missing lock.
+  @retval FALSE  No action, matching allocation or invalid schema.
 **/
 BOOLEAN
 EFIAPI
@@ -461,14 +464,12 @@ Tcg2PhysicalPresenceLibNeedUserConfirm (
   VOID
   )
 {
-  EFI_TCG2_PHYSICAL_PRESENCE        Request;
-  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  Flags;
-  UINT32                            Supported;
-  UINT32                            Desired;
-  BOOLEAN                           NoChange;
+  EFI_TCG2_PHYSICAL_PRESENCE  Request;
+  UINT32                      Supported;
+  UINT32                      Desired;
+  BOOLEAN                     NoChange;
 
   if ((GetBootModeHob () == BOOT_ON_S4_RESUME) ||
-      EFI_ERROR (PpVerifyFlagsLock ()) || EFI_ERROR (PpReadFlags (&Flags)) ||
       EFI_ERROR (PpReadRequest (&Request)) ||
       (Request.PPRequest == TCG2_PHYSICAL_PRESENCE_NO_ACTION) ||
       EFI_ERROR (PpGetAllocation (Request.PPRequest, Request.PPRequestParameter, &Supported, &Desired, &NoChange)))
@@ -522,16 +523,14 @@ Tcg2PhysicalPresenceLibSubmitRequestToPreOSFunction (
   IN UINT32  RequestParameter
   )
 {
-  EFI_TCG2_PHYSICAL_PRESENCE        Request;
-  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  Flags;
+  EFI_TCG2_PHYSICAL_PRESENCE  Request;
 
   if (!PpValidOperation (OperationRequest, RequestParameter)) {
     return TCG_PP_SUBMIT_REQUEST_TO_PREOS_NOT_IMPLEMENTED;
   }
 
-  // Queuing is not authorization. The pre-OS executor verifies the lock.
-  // These transport APIs can also be called after ExitBootServices.
-  if (EFI_ERROR (PpReadFlags (&Flags)) || EFI_ERROR (PpReadRequest (&Request))) {
+  // Queuing is not authorization: the pre-OS executor requires console confirmation.
+  if (EFI_ERROR (PpReadRequest (&Request))) {
     return TCG_PP_SUBMIT_REQUEST_TO_PREOS_GENERAL_FAILURE;
   }
 
@@ -559,9 +558,9 @@ Tcg2PhysicalPresenceLibSubmitRequestToPreOSFunctionEx (
   return Tcg2PhysicalPresenceLibSubmitRequestToPreOSFunction (*OperationRequest, *RequestParameter);
 }
 
-/** Report conservative requirements when flags cannot be trusted.
+/** Report that every implemented operation requires console confirmation.
 
-  @return Stored flags with all console-confirmation requirements asserted.
+  @return Constant management flags; no persisted flag can waive confirmation.
 **/
 UINT32
 EFIAPI
@@ -569,14 +568,7 @@ Tcg2PhysicalPresenceLibGetManagementFlags (
   VOID
   )
 {
-  EFI_TCG2_PHYSICAL_PRESENCE_FLAGS  Flags;
-
-  if (EFI_ERROR (PpReadFlags (&Flags))) {
-    return PP_REQUIRED_FLAGS;
-  }
-
-  // The actual authorization policy is stricter than legacy stored waivers.
-  return Flags.PPFlags | PP_REQUIRED_FLAGS;
+  return PP_REQUIRED_FLAGS;
 }
 
 /** Advertise only implemented operations and the platform's strict PP policy.

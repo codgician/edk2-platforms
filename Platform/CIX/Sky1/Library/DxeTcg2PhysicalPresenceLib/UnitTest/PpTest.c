@@ -3,7 +3,6 @@
 #include <setjmp.h>
 #include <cmocka.h>
 #include "PpMocks.h"
-#include "HostSupport.h"
 
 static void
 log_all_hashable_subset (
@@ -41,42 +40,12 @@ wrong_attributes (
 }
 
 static void
-lock_missing (
-  void  **State
-  )
-{
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-  mPp.PolicyAvailable = FALSE;
-  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
-}
-
-static void
-reserved_flags (
-  void  **State
-  )
-{
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-  mPp.Flags.PPFlags |= BIT0;
-  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
-}
-
-static void
 bad_parameter (
   void  **State
   )
 {
   PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 1);
   assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
-}
-
-static void
-no_waiver (
-  void  **State
-  )
-{
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-  mPp.Flags.PPFlags = 0;
-  assert_true (Tcg2PhysicalPresenceLibNeedUserConfirm ());
 }
 
 static void
@@ -101,19 +70,6 @@ schemas (
     }
   }
 
-  for (N = 0; N <= sizeof (mPp.Flags) + 1; ++N) {
-    PpReset (5, 0);
-    mPp.Accept    = TRUE;
-    mPp.FlagsSize = N;
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, N == sizeof (mPp.Flags) ? 2 : 0);
-    PpReset (5, 0);
-    mPp.Locked    = FALSE;
-    mPp.FlagsSize = N;
-    assert_int_equal (TPMVariableDxeEntryPoint (NULL, NULL), N == sizeof (mPp.Flags) ? EFI_SUCCESS : EFI_COMPROMISED_DATA);
-    assert_int_equal (mPp.Writes, 0);
-  }
-
   for (N = 0; N < 32; ++N) {
     PpReset (5, 0);
     mPp.Accept      = TRUE;
@@ -121,11 +77,6 @@ schemas (
     Tcg2PhysicalPresenceLibProcessRequest (NULL);
     assert_int_equal (mPp.TraceCount, 0);
     assert_int_equal (mPp.Writes, 0);
-    PpReset (5, 0);
-    mPp.Accept    = TRUE;
-    mPp.FlagsAttr = PP_ATTR | (1U << N);
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, N < 3 ? 2 : 0);
   }
 }
 
@@ -198,18 +149,6 @@ failures (
     mPp.RequestRead = Errors[I];
     Tcg2PhysicalPresenceLibProcessRequest (NULL);
     assert_int_equal (mPp.TraceCount, 0);
-    PpReset (5, 0);
-    mPp.Accept    = TRUE;
-    mPp.FlagsRead = Errors[I];
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, 0);
-    PpReset (5, 0);
-    mPp.Locked     = FALSE;
-    mPp.LockStatus = Errors[I];
-    assert_int_equal (TPMVariableDxeEntryPoint (NULL, NULL), Errors[I]);
-    mPp.Accept = TRUE;
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, 0);
   }
 
   PpReset (5, 0);
@@ -231,18 +170,6 @@ failures (
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
   assert_int_equal (mPp.KeyReads, 0);
-  PpReset (5, 0);
-  mPp.Accept        = TRUE;
-  mPp.PolicyEnabled = FALSE;
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  assert_int_equal (mPp.TraceCount, 0);
-  assert_int_equal (mPp.Writes, 0);
-  PpReset (5, 0);
-  mPp.Accept = TRUE;
-  mPp.Locked = FALSE;
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  assert_int_equal (mPp.TraceCount, 0);
-  assert_int_equal (mPp.Writes, 0);
 }
 
 static void
@@ -299,40 +226,13 @@ history_and_pcr_errors (
   mPp.Active    = 0;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
-  PpReset (5, 0);
-  mPp.Flags.PPFlags = BIT3;
-  mPp.Accept        = TRUE;
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  assert_int_equal (mPp.TraceCount, 0);
-  PpReset (0, 0);
-  mPp.Locked    = FALSE;
-  mPp.FlagsRead = EFI_NOT_FOUND;
-  assert_int_equal (TPMVariableDxeEntryPoint (NULL, NULL), EFI_SUCCESS);
-  assert_true (mPp.Locked);
-  assert_int_equal (mPp.Writes, 1);
-  PpReset (0, 0);
-  mPp.Locked    = FALSE;
-  mPp.FlagsRead = EFI_DEVICE_ERROR;
-  assert_int_equal (TPMVariableDxeEntryPoint (NULL, NULL), EFI_DEVICE_ERROR);
-  assert_int_equal (mPp.Writes, 0);
 }
 
 static void
-console_and_lock_errors (
+console_errors (
   void  **State
   )
 {
-  UINT32  I;
-
-  for (I = 1; I <= 9; ++I) {
-    PpReset (5, 0);
-    mPp.Accept         = TRUE;
-    mPp.PolicyMismatch = I;
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.TraceCount, 0);
-    assert_int_equal (mPp.Writes, 0);
-  }
-
   PpReset (5, 0);
   mPp.Accept        = TRUE;
   mPp.ConsoleStatus = EFI_DEVICE_ERROR;
@@ -343,13 +243,6 @@ console_and_lock_errors (
   mPp.PrintFailure = TRUE;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
-  PpReset (5, 0);
-  mPp.Accept            = TRUE;
-  mPp.AllocationFailure = TRUE;
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  assert_int_equal (mPp.TraceCount, 0);
-  assert_int_equal (mPp.Writes, 0);
-  assert_int_equal (HostLivePoolAllocations (), 0);
 }
 
 static void
@@ -395,26 +288,15 @@ inert_processing_diagnostic (
   void  **State
   )
 {
-  UINTN  Mode;
-
-  for (Mode = 0; Mode < 5; ++Mode) {
-    PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-    mPp.Accept = TRUE;
-    switch (Mode) {
-      case 0: mPp.PolicyMismatch = 4; break;
-      case 1: mPp.PolicyMismatch = 5; break;
-      case 2: mPp.Locked = FALSE; break;
-      case 3: mPp.FlagsSize--; break;
-      case 4: mPp.RequestSize--; break;
-    }
-
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    assert_int_equal (mPp.SerialWrites, 1);
-    assert_int_equal (mPp.Writes, 0);
-    assert_int_equal (mPp.KeyReads, 0);
-    assert_int_equal (mPp.TraceCount, 0);
-    assert_int_equal (mPp.Resets, 0);
-  }
+  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
+  mPp.Accept = TRUE;
+  mPp.RequestSize--;
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
+  assert_int_equal (mPp.SerialWrites, 1);
+  assert_int_equal (mPp.Writes, 0);
+  assert_int_equal (mPp.KeyReads, 0);
+  assert_int_equal (mPp.TraceCount, 0);
+  assert_int_equal (mPp.Resets, 0);
 }
 
 static void
@@ -467,10 +349,7 @@ main (
   const struct CMUnitTest  Tests[] = {
     cmocka_unit_test (short_variable),
     cmocka_unit_test (wrong_attributes),
-    cmocka_unit_test (lock_missing),
-    cmocka_unit_test (reserved_flags),
     cmocka_unit_test (bad_parameter),
-    cmocka_unit_test (no_waiver),
     cmocka_unit_test (log_all_hashable_subset),
     cmocka_unit_test (explicit_unhashable_banks),
     cmocka_unit_test (inert_processing_diagnostic),
@@ -480,7 +359,7 @@ main (
     cmocka_unit_test (failures),
     cmocka_unit_test (submit),
     cmocka_unit_test (history_and_pcr_errors),
-    cmocka_unit_test (console_and_lock_errors),
+    cmocka_unit_test (console_errors),
     cmocka_unit_test (consume_before_mutation)
   };
 

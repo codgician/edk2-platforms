@@ -7,6 +7,5 @@ extern UINT32  mPpHashBitmap;
 #define _PCD_GET_MODE_32_PcdTcg2HashAlgorithmBitmap  mPpHashBitmap
 #define _PCD_GET_MODE_32_PcdMaximumAsciiStringLength    0U
 #define _PCD_GET_MODE_32_PcdMaximumUnicodeStringLength  0U
-#define _PCD_GET_MODE_32_PcdTcg2PhysicalPresenceFlags  0x700e2U
 #define _PCD_VALUE_PcdTPMPPIMemoryBase                 ((UINTN)mPpiMemory)
 #endif

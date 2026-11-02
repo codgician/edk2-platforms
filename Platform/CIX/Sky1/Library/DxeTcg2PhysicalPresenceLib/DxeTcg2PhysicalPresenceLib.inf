@@ -1,10 +1,8 @@
 ## @file
 #  Executes TPM 2.0 requests from OS or BIOS
 #
-#  Exact PP schemas and a verified LOCK_NOW flags policy are required before execution.
-#  Every TPM mutation requires fresh F12 console confirmation; ESC/30s timeout rejects.
-#  Allocation is limited to TPM-supported banks measurable by Tcg2Dxe.
-#  Inert policy/schema failures report through SerialPortLib even in RELEASE.
+#  This library will check and execute TPM 2.0 request from OS or BIOS. The request may
+#  ask for user confirmation before execution.
 #
 #  Caution: This module requires additional review when modified.
 #  This driver will have external input - variable.
@@ -32,8 +30,6 @@
 
 [Sources]
   DxeTcg2PhysicalPresenceLib.c
-  PpPolicy.h
-  PpStatus.h
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -42,29 +38,34 @@
   Platform/CIX/Sky1/Sky1.dec
 
 [LibraryClasses]
+  MemoryAllocationLib
   UefiLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiRuntimeServicesTableLib
-  BaseLib
-  PcdLib
-  MemoryAllocationLib
   BaseMemoryLib
   DebugLib
+  PrintLib
+  HiiLib
   HobLib
   Tpm2CommandLib
-  PrintLib
+  Tcg2PpVendorLib
+  PcdLib
   SerialPortLib
 
 [Protocols]
-  gEdkiiVariablePolicyProtocolGuid     ## CONSUMES
+  gEfiTcg2ProtocolGuid                 ## SOMETIMES_CONSUMES
+  gEdkiiVariableLockProtocolGuid       ## SOMETIMES_CONSUMES
 
 [Pcd]
+  gEfiSecurityPkgTokenSpaceGuid.PcdTcg2PhysicalPresenceFlags       ## SOMETIMES_CONSUMES
   gCixPlatformTokenSpaceGuid.PcdTPMPPIMemoryBase
   gEfiSecurityPkgTokenSpaceGuid.PcdTcg2HashAlgorithmBitmap
 
 [Guids]
+  ## SOMETIMES_CONSUMES ## HII
   ## SOMETIMES_PRODUCES ## Variable:L"Tcg2PhysicalPresence"
   ## SOMETIMES_CONSUMES ## Variable:L"Tcg2PhysicalPresence"
+  ## SOMETIMES_PRODUCES ## Variable:L"Tcg2PhysicalPresenceFlags"
   ## SOMETIMES_CONSUMES ## Variable:L"Tcg2PhysicalPresenceFlags"
   gEfiTcg2PhysicalPresenceGuid
