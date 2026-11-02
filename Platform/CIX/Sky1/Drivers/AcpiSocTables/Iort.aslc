@@ -266,7 +266,9 @@ ARM_EFI_ACPI_6_0_IO_REMAPPING_TABLE  Iort =
       0,                                                 // IdReference
     },
     SMMU2_BASE,                                  // Base address
-    EFI_ACPI_IORT_SMMUv3_FLAG_COHAC_OVERRIDE,    // Flags
+    // SMMU_IDR0.HTTU reports access + dirty flag update on this instance.
+    EFI_ACPI_IORT_SMMUv3_FLAG_COHAC_OVERRIDE |
+    EFI_ACPI_IORT_SMMUv3_FLAG_HTTU_OVERRIDE_DS,  // Flags
     0,                                           // Reserved
     0,                                           // VATOS address
     EFI_ACPI_IORT_SMMUv3_MODEL_GENERIC,          // SMMUv3 Model
