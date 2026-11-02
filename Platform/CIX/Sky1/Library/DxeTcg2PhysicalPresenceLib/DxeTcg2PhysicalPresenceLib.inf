@@ -46,7 +46,6 @@
   BaseMemoryLib
   DebugLib
   PrintLib
-  HiiLib
   HobLib
   Tpm2CommandLib
   Tcg2PpVendorLib
