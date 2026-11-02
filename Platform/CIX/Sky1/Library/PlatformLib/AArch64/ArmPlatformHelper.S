@@ -41,3 +41,4 @@ ASM_FUNC (ArmPlatformGetCorePosition)
 	mov	x0, x1, LSR #8
     ret
 
+ASM_FUNCTION_REMOVE_IF_UNREFERENCED
