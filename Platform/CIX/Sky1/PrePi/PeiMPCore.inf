@@ -22,12 +22,10 @@
 
 [Sources.ARM]
   Arm/ArchPrePi.c
-  Arm/ArmPlatformStack.S   | GCC
   Arm/ModuleEntryPoint.S   | GCC
 
 [Sources.AArch64]
   AArch64/ArchPrePi.c
-  AArch64/ArmPlatformStack.S
   AArch64/ModuleEntryPoint.S
 
 [Packages]
@@ -48,9 +46,11 @@
   TimerLib
   SerialPortLib
   ExtractGuidedSectionLib
+  LzmaDecompressLib
   DebugAgentLib
   PrePiLib
   ArmPlatformLib
+  ArmPlatformStackLib
   MemoryAllocationLib
   HobLib
   PrePiHobListPointerLib
@@ -72,6 +72,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString
 
 [FixedPcd]
+  gArmTokenSpaceGuid.PcdVFPEnabled
 
   gArmTokenSpaceGuid.PcdFdBaseAddress
   gArmTokenSpaceGuid.PcdFdSize
@@ -80,7 +81,7 @@
   gArmTokenSpaceGuid.PcdFvSize
 
   gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize
-  gCixTokenSpaceGuid.PcdCPUCoreSecondaryStackSize
+  gArmPlatformTokenSpaceGuid.PcdCPUCoreSecondaryStackSize
 
   gArmTokenSpaceGuid.PcdGicDistributorBase
   gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase

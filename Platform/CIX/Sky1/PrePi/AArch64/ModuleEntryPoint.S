@@ -112,6 +112,7 @@ _GetBaseUefiMemory:
 
 _GetStackBase:
   // r1 = The top of the Mpcore Stacks
+  mov   sp, x1
   // Stack for the primary core = PrimaryCoreStack
   MOV32 (x2, FixedPcdGet32(PcdCPUCorePrimaryStackSize))
   sub   x12, x1, x2
@@ -123,10 +124,8 @@ _GetStackBase:
   // x12 = The base of the MpCore Stacks (primary stack & secondary stacks)
   mov   x0, x12
   mov   x1, x10
-  //ArmPlatformStackSet(StackBase, MpId, PrimaryStackSize, SecondaryStackSize)
   MOV32 (x2, FixedPcdGet32(PcdCPUCorePrimaryStackSize))
   MOV32 (x3, FixedPcdGet32(PcdCPUCoreSecondaryStackSize))
-  bl    ASM_PFX(ArmPlatformStackSet)
 
   // Is it the Primary Core ?
   mov   x0, x10
