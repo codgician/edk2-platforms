@@ -8,12 +8,8 @@ set(FTPM_DRIVER_SOURCES
   "${EDK_ROOT}/SecurityPkg/Library/Tpm2CommandLib/Tpm2Integrity.c"
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLib.c"
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLibInternal.c")
-sky1_host_test(ftpmdxe_test
-  SOURCES DriverTest.c ${FTPM_DRIVER_SOURCES}
-  INCLUDES "${CMAKE_CURRENT_LIST_DIR}/Include")
-sky1_host_fuzz(response_fuzz
-  SOURCES ResponseFuzz.c ${FTPM_DRIVER_SOURCES}
-  INCLUDES "${CMAKE_CURRENT_LIST_DIR}/Include")
+sky1_host_test(ftpmdxe_test SOURCES DriverTest.c ${FTPM_DRIVER_SOURCES})
+sky1_host_fuzz(response_fuzz SOURCES ResponseFuzz.c ${FTPM_DRIVER_SOURCES})
 foreach(TARGET ftpmdxe_test response_fuzz)
   target_compile_options(${TARGET} PRIVATE
     "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/PrintPcd.h"

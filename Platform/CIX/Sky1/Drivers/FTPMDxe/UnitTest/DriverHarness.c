@@ -28,7 +28,6 @@ UINTN                        TestConsoleWrites;
 EFI_STATUS                   TestClientResult;
 EFI_STATUS                   TestReadyEventResult;
 UINTN                        TestClosedEvents;
-UINTN                        TestContextFinalizes;
 UINTN                        TestCapExtends;
 EFI_STATUS                   TestCapResult;
 TEEC_Result                  TestCapDiscoveryResult;
@@ -48,7 +47,6 @@ UINTN                    TestReturnedSize;
 TEEC_Result              TestInvokeResult;
 TEEC_Result              TestCloseResult;
 TEEC_Result              TestOpenResult;
-BOOLEAN                  TestFinalizeResult;
 BOOLEAN                  TestCloseSawReadinessRevoked;
 UINT32                   TestLastDiagnosticCommands;
 UINT32                   TestLastDiagnosticFailures;
@@ -59,8 +57,6 @@ BOOLEAN                  TestSerialOnly;
 UINTN                    TestInvocations;
 EFI_STATUS               TestInstallResult;
 UINTN                    TestCheckedCloses;
-UINTN                    TestLegacyCloses;
-UINTN                    TestFinalizes;
 UINTN                    TestVariableWrites;
 BOOLEAN                  TestAtEbs;
 BOOLEAN                  TestHalted;
@@ -245,16 +241,6 @@ OpteeClientApiInitialize (
   return TestClientResult;
 }
 
-BOOLEAN
-OpteeClientApiFinalize (
-  VOID
-  )
-{
-  TestRequire (!TestAtEbs);
-  TestFinalizes++;
-  return TestFinalizeResult;
-}
-
 TEEC_Result
 TEEC_InitializeContext (
   const char    *Name,
@@ -264,16 +250,6 @@ TEEC_InitializeContext (
   TestRequire (!TestAtEbs);
   Context->fd = 1;
   return TEEC_SUCCESS;
-}
-
-void
-TEEC_FinalizeContext (
-  TEEC_Context  *Context
-  )
-{
-  TestRequire (!TestAtEbs);
-  TestContextFinalizes++;
-  Context->fd = -1;
 }
 
 TEEC_Result
@@ -310,14 +286,6 @@ OpteeClientCloseSession (
   }
 
   return TestCloseResult;
-}
-
-void
-TEEC_CloseSession (
-  TEEC_Session  *Session
-  )
-{
-  TestLegacyCloses++;
 }
 
 TEEC_Result
@@ -571,14 +539,11 @@ TestReset (
   TestEventCalls               = 0;
   TestSerialOnly               = FALSE;
   TestInstallResult            = EFI_SUCCESS;
-  TestFinalizeResult           = TRUE;
   TestCloseSawReadinessRevoked = FALSE;
   TestLastDiagnosticCommands   = 0;
   TestLastDiagnosticFailures   = 0;
   TestInvocations              = 0;
   TestCheckedCloses            = 0;
-  TestLegacyCloses             = 0;
-  TestFinalizes                = 0;
   TestVariableWrites           = 0;
   TestCheckZeroResponse        = FALSE;
   TestSavedCommand             = NULL;
@@ -598,7 +563,6 @@ TestReset (
   TestClientResult = EFI_SUCCESS;
   TestReadyEventResult = EFI_SUCCESS;
   TestClosedEvents = 0;
-  TestContextFinalizes = 0;
   TestCapExtends = 0;
   TestCapResult = EFI_SUCCESS;
   TestCapDiscoveryResult = TEEC_SUCCESS;
