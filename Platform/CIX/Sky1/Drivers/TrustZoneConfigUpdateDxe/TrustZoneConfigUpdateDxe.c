@@ -147,7 +147,7 @@ TrustZoneConfigUpdateCallback (
                     &PlatformSetupVar
                     );
 
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) || (mVarSize != sizeof (PLATFORM_SETUP_DATA))) {
         DEBUG ((DEBUG_ERROR, "[%a] GetVariable failed: %r\n", __FUNCTION__, Status));
         return;
     }
@@ -197,9 +197,13 @@ TrustZoneConfigUpdateDxeEntryPoint (
                 &mVarSize,
                 &PlatformSetupVar
                 );
-    if (EFI_ERROR (Status)) {
+    if (EFI_ERROR (Status) || (mVarSize != sizeof (PLATFORM_SETUP_DATA))) {
+        //
+        // The write-back below would store an uninitialised or partly
+        // uninitialised setup variable.
+        //
         DEBUG ((DEBUG_ERROR, "[%a] GetVariable failed: %r\n", __FUNCTION__, Status));
-        goto Done;
+        return EFI_ERROR (Status) ? Status : EFI_BAD_BUFFER_SIZE;
     }
 
     Status = GetOrSetDataFromFlash((VOID**)&pImage, FALSE);
