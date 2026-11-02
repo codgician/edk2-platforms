@@ -10,6 +10,7 @@
 #include <PiDxe.h>
 #include <Guid/EventGroup.h>
 #include <Library/tee_client_api.h>
+#include <Library/BaseMemoryLib.h>
 #include <Protocol/FTPMInitProtocol.h>
 
 #define TEST_TPM_MAX  0x1000
@@ -100,12 +101,6 @@ TestHeader (
 VOID
 TestRequire (
   BOOLEAN  Condition
-  );
-
-BOOLEAN
-TestAllZero (
-  CONST UINT8  *Buffer,
-  UINTN        Size
   );
 
 #endif

@@ -228,18 +228,18 @@ SecretIsolation (
   TestCheckZeroResponse   = TRUE;
   UINT32  Size = 32;
   assert_int_equal (Submit (&Size), EFI_SUCCESS);
-  assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  assert_true (IsZeroBuffer (TestSavedResponse, TEST_TPM_MAX));
   assert_int_equal (mCommand[9], 0);
   assert_int_equal (mCommand[10], 0x71);
   TestInvokeResult = TEEC_ERROR_GENERIC;
   Size             = 32;
   assert_int_equal (Submit (&Size), EFI_DEVICE_ERROR);
-  assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  assert_true (IsZeroBuffer (TestSavedResponse, TEST_TPM_MAX));
   TestInvokeResult = TEEC_ERROR_SHORT_BUFFER;
   TestReturnedSize = 64;
   Size             = 32;
   assert_int_equal (Submit (&Size), EFI_BUFFER_TOO_SMALL);
-  assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  assert_true (IsZeroBuffer (TestSavedResponse, TEST_TPM_MAX));
 }
 
 STATIC void
@@ -317,7 +317,7 @@ InstallFailureCleanup (
   assert_int_equal (TestCapExtends, 8);
   assert_int_equal (TestInvocations, 9);
   assert_false (TestPrivateReady ());
-  assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  assert_true (IsZeroBuffer (TestSavedResponse, TEST_TPM_MAX));
   assert_int_equal (SerialLines (), 3);
 }
 

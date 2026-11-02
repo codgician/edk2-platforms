@@ -20,32 +20,22 @@ log_all_hashable_subset (
 }
 
 static void
-short_variable (
+malformed_request (
   void  **State
   )
 {
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-  mPp.RequestSize--;
-  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
-}
+  UINTN  Case;
 
-static void
-wrong_attributes (
-  void  **State
-  )
-{
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 0);
-  mPp.RequestAttr = EFI_VARIABLE_BOOTSERVICE_ACCESS;
-  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
-}
+  // Short variable, wrong attributes, nonzero parameter for CLEAR.
+  for (Case = 0; Case < 3; Case++) {
+    PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, (Case == 2) ? 1 : 0);
+    mPp.RequestSize -= (Case == 0) ? 1 : 0;
+    if (Case == 1) {
+      mPp.RequestAttr = EFI_VARIABLE_BOOTSERVICE_ACCESS;
+    }
 
-static void
-bad_parameter (
-  void  **State
-  )
-{
-  PpReset (TCG2_PHYSICAL_PRESENCE_CLEAR, 1);
-  assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+    assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
+  }
 }
 
 static void
@@ -347,9 +337,7 @@ main (
   )
 {
   const struct CMUnitTest  Tests[] = {
-    cmocka_unit_test (short_variable),
-    cmocka_unit_test (wrong_attributes),
-    cmocka_unit_test (bad_parameter),
+    cmocka_unit_test (malformed_request),
     cmocka_unit_test (log_all_hashable_subset),
     cmocka_unit_test (explicit_unhashable_banks),
     cmocka_unit_test (inert_processing_diagnostic),

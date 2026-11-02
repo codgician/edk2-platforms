@@ -80,6 +80,6 @@ LLVMFuzzerTestOneInput (
   }
 
   TestRequire (Output[0] == 0xA5 && Output[OriginalCapacity + 1] == 0xA5);
-  TestRequire (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
+  TestRequire (IsZeroBuffer (TestSavedResponse, TEST_TPM_MAX));
   return 0;
 }

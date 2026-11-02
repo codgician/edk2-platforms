@@ -80,21 +80,6 @@ TestRequire (
   }
 }
 
-BOOLEAN
-TestAllZero (
-  CONST UINT8  *Buffer,
-  UINTN        Size
-  )
-{
-  for (UINTN Index = 0; Index < Size; Index++) {
-    if (Buffer[Index] != 0) {
-      return FALSE;
-    }
-  }
-
-  return TRUE;
-}
-
 VOID
 TestHeader (
   UINT8   *Buffer,
@@ -291,7 +276,7 @@ TEEC_InvokeCommand (
   TestSavedResponseSize = Operation->params[1].tmpref.size;
   if (TestCheckZeroResponse) {
     TestRequire (TestSavedResponse != TestCallerOutput);
-    TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
+    TestRequire (IsZeroBuffer (TestSavedResponse, TestSavedResponseSize));
   }
 
   // Script only the TA boundary: command serialization, the private bridge,
@@ -315,7 +300,7 @@ TEEC_InvokeCommand (
     TestRequire (!TestAtEbs && TestProtocol == NULL);
     TestRequire (FtpmGetStatus (&mFtpmProtocol));
     TestRequire (TestSavedResponse == mResponseBuffer);
-    TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
+    TestRequire (IsZeroBuffer (TestSavedResponse, TestSavedResponseSize));
     if (Code == TPM_CC_GetCapability) {
       TestRequire (TestSavedCommandSize == 22);
       TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 10))) == TPM_CAP_PCRS);
@@ -331,7 +316,7 @@ TEEC_InvokeCommand (
     TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 10))) == TestCapExtends);
     TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 14))) == 9);
     TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 18))) == TPM_RS_PW);
-    TestRequire (TestAllZero (TestSavedCommand + 22, 5));
+    TestRequire (IsZeroBuffer (TestSavedCommand + 22, 5));
     TestRequire (SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 27))) == 1);
     TestRequire (SwapBytes16 (ReadUnaligned16 ((UINT16 *)(TestSavedCommand + 31))) == TPM_ALG_SHA256);
     TestRequire (memcmp (TestSavedCommand + 33, ExpectedDigest, sizeof (ExpectedDigest)) == 0);

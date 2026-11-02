@@ -220,16 +220,6 @@ DebugAssert (
   abort ();
 }
 
-VOID *
-EFIAPI
-DebugClearMemory (
-  OUT VOID  *Buffer,
-  IN UINTN  Length
-  )
-{
-  return SetMem (Buffer, Length, 0xAF);
-}
-
 BOOLEAN
 EFIAPI
 DebugAssertEnabled (
@@ -251,15 +241,6 @@ DebugPrintEnabled (
 BOOLEAN
 EFIAPI
 DebugCodeEnabled (
-  VOID
-  )
-{
-  return FALSE;
-}
-
-BOOLEAN
-EFIAPI
-DebugClearMemoryEnabled (
   VOID
   )
 {
