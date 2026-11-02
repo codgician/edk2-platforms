@@ -55,7 +55,6 @@ RpcLoadTa (
   // TAs ship as FREEFORM files named by their UUID in a firmware volume.
   //
   if (EFI_ERROR (GetSectionFromAnyFv (&Uuid, EFI_SECTION_RAW, 0, &Image, &ImageSize))) {
-    DEBUG ((DEBUG_ERROR, "%a: TA %g not found\n", __func__, &Uuid));
     OpteeReject ("TA image unavailable", 0, TEEC_ERROR_ITEM_NOT_FOUND);
     return TEEC_ERROR_ITEM_NOT_FOUND;
   }

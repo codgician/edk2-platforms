@@ -126,9 +126,7 @@ SetSize (
   UINTN  Capacity;
   UINT8  *Data;
 
-  if ((RequestedSize > REE_FS_FILE_CAPACITY) ||
-      (RequestedSize > MAX_UINTN - (SIZE_4KB - 1)))
-  {
+  if (RequestedSize > REE_FS_FILE_CAPACITY) {
     return FALSE;
   }
 
@@ -327,10 +325,8 @@ OpteeReeFsHandle (
   REE_FS_FILE          *File;
   REE_FS_DESCRIPTOR    *Descriptor;
 
-  if ((Arg == NULL) || (Arg->NumParams == 0) ||
-      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT))
-  {
-    return FsReject ("REE-FS framing", (Arg == NULL) ? 0 : ((Arg->NumParams == 0) ? 0 : Arg->Params[0].Attr), TEEC_ERROR_BAD_PARAMETERS);
+  if ((Arg->NumParams == 0) || (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
+    return FsReject ("REE-FS framing", (Arg->NumParams == 0) ? 0 : Arg->Params[0].Attr, TEEC_ERROR_BAD_PARAMETERS);
   }
 
   switch (Arg->Params[0].U.Value.A) {

@@ -102,10 +102,6 @@ OpteeShmInit (
   SHM_RECORD    *Records;
   EFI_STATUS    Status;
 
-  if (mShm != NULL) {
-    return EFI_ALREADY_STARTED;
-  }
-
   ZeroMem (&Args, sizeof (Args));
   Args.Arg0 = OPTEE_SMC_EXCHANGE_CAPABILITIES;
   ArmCallSmc (&Args);
@@ -134,26 +130,21 @@ OpteeShmInit (
   }
 
   // The trusted platform reservation, not the peer, determines what may map.
-  if ((Base == 0) || (Base % SHM_PAGE_SIZE != 0) || (Base > MAX_UINTN) ||
+  if ((Base == 0) || (Base % SHM_PAGE_SIZE != 0) ||
       (Base < ReservedBase) || (Base - ReservedBase > ReservedSize))
   {
     OpteeReject ("SHM base", Base, EFI_UNSUPPORTED);
     return EFI_UNSUPPORTED;
   }
 
-  if ((Size == 0) || (Size % SHM_PAGE_SIZE != 0) || (Size > MAX_UINTN - Base) ||
+  if ((Size == 0) || (Size % SHM_PAGE_SIZE != 0) ||
       (Size > ReservedSize - (Base - ReservedBase)))
   {
     OpteeReject ("SHM size", Size, EFI_UNSUPPORTED);
     return EFI_UNSUPPORTED;
   }
 
-  Pages = (UINTN)(Size / SHM_PAGE_SIZE);
-  if (Pages > MAX_UINTN / sizeof (*Records)) {
-    OpteeReject ("SHM record count", Pages, EFI_UNSUPPORTED);
-    return EFI_UNSUPPORTED;
-  }
-
+  Pages   = (UINTN)(Size / SHM_PAGE_SIZE);
   Records = AllocateZeroPool (Pages * sizeof (*Records));
   if (Records == NULL) {
     OpteeReject ("SHM records allocation", Pages, EFI_OUT_OF_RESOURCES);
@@ -548,8 +539,7 @@ GetMsgParams (
 
     if ((Type >= OPTEE_MSG_ATTR_TYPE_TMEM_INPUT) && (Type <= OPTEE_MSG_ATTR_TYPE_TMEM_INOUT)) {
       if ((Params[Index].U.Tmem.BufPtr != Bounce->Sent[Index].U.Tmem.BufPtr) ||
-          (Params[Index].U.Tmem.ShmRef != Bounce->Sent[Index].U.Tmem.ShmRef) ||
-          (Params[Index].U.Tmem.Size > MAX_UINTN))
+          (Params[Index].U.Tmem.ShmRef != Bounce->Sent[Index].U.Tmem.ShmRef))
       {
         OpteeReject ("response memref", Index, TEEC_ERROR_COMMUNICATION);
         return TEEC_ERROR_COMMUNICATION;
