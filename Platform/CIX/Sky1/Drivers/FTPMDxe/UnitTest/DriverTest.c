@@ -251,7 +251,7 @@ CloseSuccessTwice (
   assert_int_equal (TestLegacyCloses, 0);
   assert_int_equal (TestFinalizes, 0);
   assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
-  assert_int_equal (TestProtocol->FTPMOpenSession (TestProtocol), EFI_NOT_READY);
+  assert_int_equal (TestProtocol->FTPMOpenSession (TestProtocol), EFI_UNSUPPORTED);
   UINT32  Size = 32;
   assert_int_equal (Submit (&Size), EFI_NOT_READY);
   TestExitBootServices ();
@@ -284,7 +284,6 @@ CloseFailureReturns (
     assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
     assert_true (TestCloseSawReadinessRevoked);
     assert_true (TestSessionStillOpen ());
-    assert_int_equal (TestProtocol->FTPMOpenSession (TestProtocol), EFI_NOT_READY);
     Size = 32;
     assert_int_equal (Submit (&Size), EFI_NOT_READY);
     TestExitBootServices ();

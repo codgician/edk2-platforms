@@ -13,7 +13,7 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Guid/EventGroup.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -43,12 +43,10 @@ extern EFI_GUID  gOpteeFtpmTaGuid;
 
 STATIC TEEC_Context  mContext;
 STATIC TEEC_Session  mSession;
-STATIC BOOLEAN       mClientReady;
 STATIC BOOLEAN       mSessionOpen;
 STATIC EFI_EVENT     mBeforeExitBootServicesEvent;
 STATIC EFI_EVENT     mExitBootServicesEvent;
 STATIC BOOLEAN       mSessionUsable;
-STATIC BOOLEAN       mHandoffStarted;
 STATIC BOOLEAN       mCommandBusy;
 STATIC UINT8         mCommandBuffer[FTPM_TA_MAX_COMMAND];
 STATIC UINT8         mResponseBuffer[FTPM_TA_MAX_RESPONSE];
@@ -147,6 +145,7 @@ PublishStatus (
                     );
 }
 
+/** The single TA session is private to this driver; never hand it out. **/
 STATIC
 EFI_STATUS
 EFIAPI
@@ -154,32 +153,7 @@ FtpmOpenSession (
   IN FTPM_INIT_PROTOCOL  *This
   )
 {
-  if (!mClientReady || mHandoffStarted) {
-    return EFI_NOT_READY;
-  }
-
-  if (mSessionOpen) {
-    return mSessionUsable ? EFI_SUCCESS : EFI_NOT_READY;
-  }
-
-  mOpenResult = TEEC_OpenSession (
-                                  &mContext,
-                                  &mSession,
-                                  (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
-                                  TEEC_LOGIN_PUBLIC,
-                                  NULL,
-                                  NULL,
-                                  &mOpenOrigin
-                                  );
-  if (mOpenResult != TEEC_SUCCESS) {
-    DEBUG ((DEBUG_ERROR, "fTPM: opening TA session failed: 0x%x (origin %u)\n", mOpenResult, mOpenOrigin));
-    ReportDecision ("session open failed, TPM skipped", mOpenResult, TRUE, FALSE);
-    return EFI_DEVICE_ERROR;
-  }
-
-  mSessionOpen   = TRUE;
-  mSessionUsable = TRUE;
-  return EFI_SUCCESS;
+  return EFI_UNSUPPORTED;
 }
 
 STATIC
@@ -191,17 +165,7 @@ FtpmGetSession (
   OUT TEEC_Session        *Session
   )
 {
-  if ((Context == NULL) || (Session == NULL)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  if (!mSessionOpen || !mSessionUsable || mHandoffStarted) {
-    return EFI_NOT_READY;
-  }
-
-  CopyMem (Context, &mContext, sizeof (mContext));
-  CopyMem (Session, &mSession, sizeof (mSession));
-  return EFI_SUCCESS;
+  return EFI_UNSUPPORTED;
 }
 
 STATIC
@@ -211,7 +175,7 @@ FtpmGetStatus (
   IN FTPM_INIT_PROTOCOL  *This
   )
 {
-  return mClientReady && mSessionOpen && mSessionUsable && !mHandoffStarted;
+  return mSessionUsable;
 }
 
 /**
@@ -354,15 +318,6 @@ FtpmResidentSubmitCommand (
   return FtpmSubmitCommand (&mFtpmProtocol, InputSize, Input, OutputSize, Output);
 }
 
-BOOLEAN
-EFIAPI
-FtpmResidentReady (
-  VOID
-  )
-{
-  return FtpmGetStatus (&mFtpmProtocol);
-}
-
 /**
   Runs before DXE Core accepts the OS memory-map key, so before Tcg2Dxe's
   TPL_NOTIFY final measurements submit through this transport. Console
@@ -394,8 +349,7 @@ OnExitBootServices (
 {
   TEEC_Result  Result;
 
-  mHandoffStarted = TRUE;
-  mSessionUsable  = FALSE;
+  mSessionUsable = FALSE;
   if (mSessionOpen) {
     // The client uses static SHM and allocation records reserved at init.
     Result = OpteeClientCloseSession (&mSession);
@@ -406,11 +360,6 @@ OnExitBootServices (
 
     mSessionOpen = FALSE;
   }
-
-  // The client's ordinary finalizer frees pool memory. EBS has already
-  // validated the memory map: retain inert bookkeeping instead. Linux's
-  // OP-TEE probe drains stale SHM cache entries during ownership transfer.
-  mClientReady = FALSE;
 }
 
 STATIC
@@ -474,8 +423,20 @@ FtpmDxeEntryPoint (
   if (!EFI_ERROR (mClientStatus)) {
     Result = TEEC_InitializeContext (NULL, &mContext);
     if (Result == TEEC_SUCCESS) {
-      mClientReady = TRUE;
-      FtpmOpenSession (&mFtpmProtocol);
+      mOpenResult = TEEC_OpenSession (
+                                      &mContext,
+                                      &mSession,
+                                      (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
+                                      TEEC_LOGIN_PUBLIC,
+                                      NULL,
+                                      NULL,
+                                      &mOpenOrigin
+                                      );
+      mSessionOpen   = (mOpenResult == TEEC_SUCCESS);
+      mSessionUsable = mSessionOpen;
+      if (!mSessionOpen) {
+        ReportDecision ("session open failed, TPM skipped", mOpenResult, TRUE, FALSE);
+      }
     } else {
       ReportDecision ("context initialization failed, TPM skipped", Result, TRUE, FALSE);
     }
@@ -502,7 +463,7 @@ FtpmDxeEntryPoint (
                                                    NULL
                                                    );
   if (EFI_ERROR (Status)) {
-    if (mSessionOpen && mSessionUsable) {
+    if (mSessionUsable) {
       ReportDecision ("protocol installation failed, capping PCRs 0-7", Status, FALSE, FALSE);
       CapStatus = PlatformTpmCapPcrs ();
       if (EFI_ERROR (CapStatus)) {
@@ -516,9 +477,7 @@ FtpmDxeEntryPoint (
     }
     // Keep the live session, client records and EBS code resident. Do not
     // finalize: an unconfirmed close/cache drain cannot release SHM.
-    mSessionUsable  = FALSE;
-    mClientReady    = FALSE;
-    mHandoffStarted = TRUE;
+    mSessionUsable = FALSE;
     ReportDecision ("protocol installation failed, TPM unavailable", Status, FALSE, FALSE);
   }
 

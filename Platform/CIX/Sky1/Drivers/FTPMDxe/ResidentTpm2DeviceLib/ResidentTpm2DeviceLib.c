@@ -6,12 +6,6 @@
 #include <Uefi.h>
 #include <Library/Tpm2DeviceLib.h>
 
-BOOLEAN
-EFIAPI
-FtpmResidentReady (
-  VOID
-  );
-
 EFI_STATUS
 EFIAPI
 FtpmResidentSubmitCommand (
@@ -36,13 +30,4 @@ Tpm2SubmitCommand (
            OutputParameterBlockSize,
            OutputParameterBlock
            );
-}
-
-EFI_STATUS
-EFIAPI
-Tpm2RequestUseTpm (
-  VOID
-  )
-{
-  return FtpmResidentReady () ? EFI_SUCCESS : EFI_NOT_FOUND;
 }

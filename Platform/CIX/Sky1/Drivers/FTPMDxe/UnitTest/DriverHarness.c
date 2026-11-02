@@ -379,7 +379,7 @@ TEEC_InvokeCommand (
     };
     UINT32 Code = SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 6)));
     TestRequire (!TestAtEbs && TestProtocol == NULL);
-    TestRequire (FtpmResidentReady ());
+    TestRequire (FtpmGetStatus (&mFtpmProtocol));
     TestRequire (TestSavedCommand == mCommandBuffer && TestSavedResponse == mResponseBuffer);
     TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
     if (Code == TPM_CC_GetCapability) {
@@ -512,7 +512,7 @@ IsZeroBuffer (CONST VOID *Buffer, UINTN Length)
 BOOLEAN
 TestPrivateReady (VOID)
 {
-  return FtpmResidentReady ();
+  return FtpmGetStatus (&mFtpmProtocol);
 }
 
 
@@ -559,10 +559,8 @@ TestReset (
 {
   memset (&mContext, 0, sizeof (mContext));
   memset (&mSession, 0, sizeof (mSession));
-  mClientReady    = FALSE;
   mSessionOpen    = FALSE;
   mSessionUsable  = FALSE;
-  mHandoffStarted = FALSE;
   mCommandBusy    = FALSE;
   memset (mCommandBuffer, 0, sizeof (mCommandBuffer));
   memset (mResponseBuffer, 0, sizeof (mResponseBuffer));

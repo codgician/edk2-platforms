@@ -4,7 +4,7 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Library/Tpm2DeviceLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/FTPMInitProtocol.h>
