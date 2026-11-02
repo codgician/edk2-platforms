@@ -3,9 +3,9 @@
 
   The fTPM NV uses secure NOR, not this filesystem. Files here survive CLOSE
   but not a reboot. They provide no persistent anti-rollback floor.
-  Unlink and rename-overwrite deliberately invalidate all descriptors to the
-  removed file. This conservative policy releases and scrubs storage at once;
-  unlike slot-based descriptors, a stale ID can never name a replacement.
+  Unlink deliberately invalidates all descriptors to the removed file. This
+  conservative policy releases and scrubs storage at once; unlike slot-based
+  descriptors, a stale ID can never name a replacement.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
@@ -332,48 +332,6 @@ FsReadWrite (
   return TEEC_SUCCESS;
 }
 
-/** Rename preserves source descriptors and revokes overwritten target ones. */
-STATIC
-TEEC_Result
-FsRename (
-  IN OUT OPTEE_MSG_ARG  *Arg
-  )
-{
-  CHAR8        OldName[REE_FS_NAME_MAX];
-  CHAR8        NewName[REE_FS_NAME_MAX];
-  REE_FS_FILE  *Old;
-  REE_FS_FILE  *New;
-
-  if (Arg->NumParams != 3) {
-    return FsReject ("REE-FS rename framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
-  }
-
-  if (!GetName (&Arg->Params[1], OldName)) {
-    return FsReject ("REE-FS rename framing", FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
-  }
-
-  if (!GetName (&Arg->Params[2], NewName)) {
-    return FsReject ("REE-FS rename framing", FsMemrefValue (&Arg->Params[2], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
-  }
-
-  Old = FindByName (OldName);
-  if (Old == NULL) {
-    return FsReject ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
-  }
-
-  New = FindByName (NewName);
-  if ((New != NULL) && (New != Old)) {
-    if (Arg->Params[0].U.Value.B == 0) {
-      return FsReject ("REE-FS overwrite", Arg->Params[0].U.Value.B, TEEC_ERROR_ACCESS_CONFLICT);
-    }
-
-    Clear (New);
-  }
-
-  AsciiStrCpyS (Old->Name, REE_FS_NAME_MAX, NewName);
-  return TEEC_SUCCESS;
-}
-
 TEEC_Result
 OpteeReeFsHandle (
   IN OUT OPTEE_MSG_ARG  *Arg
@@ -437,18 +395,6 @@ OpteeReeFsHandle (
 
       Clear (File);
       return TEEC_SUCCESS;
-    case OPTEE_RPC_FS_RENAME:
-      return FsRename (Arg);
-    case OPTEE_RPC_FS_OPENDIR:
-      if ((Arg->NumParams != 3) ||
-          (Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ||
-          !GetName (&Arg->Params[1], Name))
-      {
-        return FsReject ("REE-FS directory framing", (Arg->NumParams != 3) ? Arg->NumParams : ((Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ? Arg->Params[2].Attr : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT)), TEEC_ERROR_BAD_PARAMETERS);
-      }
-
-      // Object enumeration uses dirf.db; directory support is unnecessary.
-      return FsReject ("REE-FS directory unsupported", Arg->Params[0].U.Value.A, TEEC_ERROR_ITEM_NOT_FOUND);
     default:
       return FsReject ("REE-FS command", Arg->Params[0].U.Value.A, TEEC_ERROR_NOT_SUPPORTED);
   }

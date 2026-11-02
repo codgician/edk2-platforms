@@ -66,14 +66,6 @@ static void CheckData (UINT64 Fd) {
   assert (mArg->Params[1].U.Tmem.Size == 4);
   assert (memcmp (mIo, "data", 4) == 0);
 }
-static TEEC_Result Rename (const char *Old, const char *New, int Overwrite) {
-  strcpy (mName, Old);
-  strcpy ((char *)mIo, New);
-  Begin (OPTEE_RPC_FS_RENAME, 3, Overwrite, 0);
-  Mem (1, mName, 64, OPTEE_MSG_ATTR_TYPE_TMEM_INPUT);
-  Mem (2, mIo, 64, OPTEE_MSG_ATTR_TYPE_TMEM_INPUT);
-  return OpteeReeFsHandle (mArg);
-}
 static void Directions (UINT64 Fd) {
   static const UINT64 Wrong[] = {
     OPTEE_MSG_ATTR_TYPE_NONE, OPTEE_MSG_ATTR_TYPE_VALUE_INPUT,
@@ -137,17 +129,7 @@ static void Sequences (UINT64 Fd) {
   assert (Io (Fd, 8, 9, 0) == TEEC_SUCCESS);
   for (unsigned I = 0; I < 8; I++) assert (mIo[I] == 0);
   assert (mIo[8] == 0x7b);
-  assert (Open ("b", 1, &Other) == TEEC_SUCCESS);
-  assert (Rename ("a", "b", 0) == TEEC_ERROR_ACCESS_CONFLICT);
-  TestExpectDiagnostic ("REE-FS overwrite", 0, TEEC_ERROR_ACCESS_CONFLICT);
-  assert (Rename ("a", "b", 1) == TEEC_SUCCESS);
-  assert (Io (Other, 0, 1, 0) != TEEC_SUCCESS);
-  TestExpectDiagnostic ("REE-FS descriptor", Other, TEEC_ERROR_GENERIC);
-  assert (Io (Fd, 16, 1, 0) == TEEC_SUCCESS && mIo[0] == 0x7b);
-  assert (Rename ("b", "b", 0) == TEEC_SUCCESS);
-  assert (Remove ("b") == TEEC_SUCCESS);
-  assert (Io (Fd, 0, 1, 0) != TEEC_SUCCESS);
-  TestExpectDiagnostic ("REE-FS descriptor", Fd, TEEC_ERROR_GENERIC);
+  assert (Remove ("a") == TEEC_SUCCESS);
   /* Names accept exactly 1..31 bytes with a NUL in the supplied memref. */
   memset (Name, 'n', 31); Name[31] = 0;
   assert (Open (Name, 1, &Other) == TEEC_SUCCESS);

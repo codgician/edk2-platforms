@@ -83,18 +83,9 @@ int main (void) {
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("REE-FS framing", 0, TEEC_ERROR_BAD_PARAMETERS);
   Arg->NumParams = 1;
-  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_RENAME;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("REE-FS rename framing", 1, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.A = OPTEE_RPC_FS_REMOVE;
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("REE-FS remove framing", 1, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->Params[0].U.Value.A = OPTEE_RPC_FS_OPENDIR;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("REE-FS directory framing", 1, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->NumParams = 3;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("REE-FS directory unsupported", OPTEE_RPC_FS_OPENDIR, TEEC_ERROR_ITEM_NOT_FOUND);
   Arg->Params[0].U.Value.A = 0x1234;
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("REE-FS command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);

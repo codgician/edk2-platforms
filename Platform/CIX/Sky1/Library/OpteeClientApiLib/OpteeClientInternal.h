@@ -71,8 +71,6 @@
 #define OPTEE_RPC_FS_WRITE     4
 #define OPTEE_RPC_FS_TRUNCATE  5
 #define OPTEE_RPC_FS_REMOVE    6
-#define OPTEE_RPC_FS_RENAME    7
-#define OPTEE_RPC_FS_OPENDIR   8
 
 #pragma pack(1)
 typedef struct {

@@ -40,7 +40,7 @@ int LLVMFuzzerTestOneInput (const uint8_t *Input, size_t InputSize) {
   Data = OpteeShmAllocOwned (128, 8, OPTEE_SHM_RPC_APPL);
   assert (Names && Data);
   for (Step = 0; Step + 4 <= InputSize && Step < 4096; Step += 4) {
-    unsigned Op = Input[Step] % 14, File = Input[Step + 1] % 4;
+    unsigned Op = Input[Step] % 13, File = Input[Step + 1] % 4;
     unsigned Slot = Input[Step + 1] % 64, Offset = Input[Step + 2] % 129;
     unsigned Length = Input[Step + 3] % 129;
     MODEL_FD *Fd = &Fds[Slot];
@@ -106,42 +106,25 @@ int LLVMFuzzerTestOneInput (const uint8_t *Input, size_t InputSize) {
         for (unsigned I = 0; I < 64; I++) if (Fds[I].File == (int)File) Fds[I].Live = 0;
       }
     } else if (Op == 7) {
-      unsigned New = Input[Step + 2] % 4;
-      int Overwrite = Input[Step + 3] & 1;
-      Start (OPTEE_RPC_FS_RENAME, 3, Overwrite, 0); Path (1, File); Path (2, New);
-      Result = OpteeReeFsHandle (Arg);
-      if (!Files[File].Live) assert (Result == TEEC_ERROR_ITEM_NOT_FOUND);
-      else if (New != File && Files[New].Live && !Overwrite) assert (Result == TEEC_ERROR_ACCESS_CONFLICT);
-      else {
-        assert (Result == TEEC_SUCCESS);
-        if (New != File) {
-          Files[New] = Files[File]; memset (&Files[File], 0, sizeof (Files[File]));
-          for (unsigned I = 0; I < 64; I++) {
-            if (Fds[I].File == (int)New) Fds[I].Live = 0;
-            else if (Fds[I].File == (int)File) Fds[I].File = (int)New;
-          }
-        }
-      }
-    } else if (Op == 8) {
       Start (OPTEE_RPC_FS_TRUNCATE, 1, Fd->Id, UINT64_MAX);
       assert (OpteeReeFsHandle (Arg) != TEEC_SUCCESS);
-    } else if (Op == 9) {
+    } else if (Op == 8) {
       Start (OPTEE_RPC_FS_WRITE, 2, Fd->Id, 0);
       Mem (1, Data, Length, OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT, Data);
       assert (OpteeReeFsHandle (Arg) == TEEC_ERROR_BAD_PARAMETERS);
-    } else if (Op == 10) {
+    } else if (Op == 9) {
       TestFailAllocation (1);
       Start (OPTEE_RPC_FS_TRUNCATE, 1, Fd->Id, 8192);
       Result = OpteeReeFsHandle (Arg);
       assert (Result == (Fd->Live ? TEEC_ERROR_OUT_OF_MEMORY : TEEC_ERROR_GENERIC));
       TestFailAllocation (0);
-    } else if (Op == 11) {
+    } else if (Op == 10) {
       Start (OPTEE_RPC_FS_READ, 2, Fd->Id, UINT64_MAX);
       Mem (1, Data, Length, OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT, Data);
       Result = OpteeReeFsHandle (Arg);
       assert ((Result == TEEC_SUCCESS) == !!Fd->Live);
       if (Fd->Live) assert (Arg->Params[1].U.Tmem.Size == 0);
-    } else if (Op == 12) {
+    } else if (Op == 11) {
       Start (OPTEE_RPC_FS_CREATE, 3, 0, 0);
       memset (Names, 'x', 64);
       Mem (1, Names, 64, OPTEE_MSG_ATTR_TYPE_TMEM_INPUT, Names);
