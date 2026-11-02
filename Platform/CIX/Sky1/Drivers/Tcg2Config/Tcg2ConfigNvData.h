@@ -32,11 +32,20 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #define TPM_DEVICE_NULL      0
 #define TPM_DEVICE_1_2       1
 #define TPM_DEVICE_2_0_DTPM  2
+#define TPM_DEVICE_MIN       TPM_DEVICE_1_2
+#define TPM_DEVICE_MAX       TPM_DEVICE_2_0_DTPM
+#define TPM_DEVICE_DEFAULT   TPM_DEVICE_1_2
 
 
 #define TCG2_PPI_VERSION_1_2  0x322E31                    // "1.2"
 #define TCG2_PPI_VERSION_1_3  0x332E31                    // "1.3"
 
+//
+// Nv Data structure referenced by IFR, TPM device user desired
+//
+typedef struct {
+  UINT8    TpmDevice;
+} TCG2_CONFIGURATION;
 
 typedef struct {
   BOOLEAN    Sha1Supported;
@@ -47,6 +56,16 @@ typedef struct {
   BOOLEAN    ChangeEPSSupported;
 } TCG2_CONFIGURATION_INFO;
 
+//
+// Variable saved for S3, TPM detected, only valid in S3 path.
+// This variable is ReadOnly.
+//
+typedef struct {
+  UINT8    TpmDeviceDetected;
+} TCG2_DEVICE_DETECTION;
+
+#define TCG2_STORAGE_NAME           L"TCG2_CONFIGURATION"
 #define TCG2_STORAGE_INFO_NAME      L"TCG2_CONFIGURATION_INFO"
+#define TCG2_DEVICE_DETECTION_NAME  L"TCG2_DEVICE_DETECTION"
 
 #endif

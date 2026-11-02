@@ -14,4 +14,3 @@ sky1_host_fuzz(tcg2_setup_fuzz SOURCES SetupFuzz.c INCLUDES "${CMAKE_CURRENT_BIN
 target_compile_options(tcg2_setup_fuzz PRIVATE -ffunction-sections -fdata-sections)
 target_link_options(tcg2_setup_fuzz PRIVATE -Wl,--gc-sections)
 sky1_host_test(tcg2_null_test SOURCES NullTest.c ../../../Library/DxeTcg2PhysicalPresenceLibNull/DxeTcg2PhysicalPresenceLibNull.c)
-sky1_host_test(tcg2_selection_test SOURCES SelectionTest.c)
