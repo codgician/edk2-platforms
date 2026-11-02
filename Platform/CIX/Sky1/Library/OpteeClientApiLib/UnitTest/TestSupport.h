@@ -30,7 +30,6 @@ extern UINTN TestDelayMicroseconds;
 extern UINTN TestTimeCalls;
 extern UINTN TestFvCalls;
 extern VOID (*TestSmcHook)(ARM_SMC_ARGS *Args);
-extern VOID (*TestCacheHook)(ARM_SMC_ARGS *Args);
 extern VOID (*TestFreeHook)(VOID *Buffer);
 extern EFI_STATUS (*TestGetTimeHook)(EFI_TIME *Time);
 extern EFI_STATUS (*TestFvHook)(CONST EFI_GUID *Guid, VOID **Image, UINTN *Size);

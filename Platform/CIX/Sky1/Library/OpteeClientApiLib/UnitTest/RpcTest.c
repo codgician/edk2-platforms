@@ -141,7 +141,7 @@ NonOwningArgument (VOID **State)
   (VOID)State;
   TestInit ();
   TestGetTimeHook = GoodTime;
-  Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (1), 8);
+  Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (1), 8, OPTEE_SHM_CLIENT);
   assert_non_null (Arg);
   ZeroMem (Arg, OPTEE_MSG_ARG_SIZE (1));
   Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
@@ -400,7 +400,7 @@ PayloadOwnership (VOID **State)
     Arg->Params[0].U.Value.B--;
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-    assert_false (OpteeShmContains ((UINTN)Payload, 1));
+    assert_false (OpteeShmIsOwned ((UINTN)Payload, 0, Owners[Type]));
     assert_true (Dispatch (Arg));
     assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
     TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
@@ -411,7 +411,7 @@ PayloadOwnership (VOID **State)
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
   TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
-  Payload = OpteeShmAlloc (32, 8);
+  Payload = OpteeShmAllocOwned (32, 8, OPTEE_SHM_CLIENT);
   assert_non_null (Payload);
   Arg->Params[0].U.Value.B = (UINTN)Payload;
   assert_true (Dispatch (Arg));
@@ -446,7 +446,7 @@ RejectArgumentAndClientMemrefs (VOID **State)
   (VOID)State;
   TestInit ();
   Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (2));
-  Client = OpteeShmAlloc (32, 8);
+  Client = OpteeShmAllocOwned (32, 8, OPTEE_SHM_CLIENT);
   assert_non_null (Client);
   CopyMem (Client, "SECRET-CANARY", sizeof ("SECRET-CANARY"));
   SetLoad (Arg, Client, 32);
@@ -467,11 +467,6 @@ RejectArgumentAndClientMemrefs (VOID **State)
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
   TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT | BIT8, TEEC_ERROR_BAD_PARAMETERS);
-  SetLoad (Arg, NULL, 0);
-  Arg->Params[1].Attr = OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("TA framing", OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT, TEEC_ERROR_BAD_PARAMETERS);
   SetLoad (Arg, NULL, 0);
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INOUT;
   assert_true (Dispatch (Arg));
@@ -510,7 +505,7 @@ SmcAllocationAndFree (VOID **State)
   assert_true (OpteeShmIsOwned (Address, 64, OPTEE_SHM_RPC_ARG));
   Args.Arg2--;
   assert_true (OpteeRpcHandle (&Args));
-  assert_false (OpteeShmContains ((UINTN)Buffer, 1));
+  assert_false (OpteeShmIsOwned ((UINTN)Buffer, 0, OPTEE_SHM_RPC_ARG));
   assert_false (OpteeRpcHandle (&Args));
   TestExpectDiagnostic ("RPC argument ownership", Address, TEEC_ERROR_BAD_PARAMETERS);
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_ALLOC;

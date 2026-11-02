@@ -7,6 +7,10 @@
 #include <Library/DxeServicesLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include "TestSupport.h"
+// Production never finalizes; one unit lets TestFini reset its private state.
+#include "../OpteeClientApiLib.c"
+#include "../OpteeClientRpc.c"
+#include "../OpteeReeFs.c"
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -63,7 +67,6 @@ UINTN TestDelayMicroseconds;
 UINTN TestTimeCalls;
 UINTN TestFvCalls;
 VOID (*TestSmcHook)(ARM_SMC_ARGS *Args);
-VOID (*TestCacheHook)(ARM_SMC_ARGS *Args);
 VOID (*TestFreeHook)(VOID *Buffer);
 EFI_STATUS (*TestGetTimeHook)(EFI_TIME *Time);
 EFI_STATUS (*TestFvHook)(CONST EFI_GUID *Guid, VOID **Image, UINTN *Size);
@@ -106,9 +109,6 @@ VOID EFIAPI ArmCallSmc (ARM_SMC_ARGS *Args) {
     Args->Arg1 = TestShmBase;
     Args->Arg2 = TestShmSize;
     Args->Arg3 = TestShmFlags;
-  } else if (Args->Arg0 == OPTEE_SMC_DISABLE_SHM_CACHE) {
-    if (TestCacheHook != NULL) { TestCacheHook (Args); }
-    else { Args->Arg0 = OPTEE_SMC_RETURN_ENOTAVAIL; }
   } else {
     assert (TestSmcHook != NULL);
     TestSmcHook (Args);
@@ -156,7 +156,6 @@ VOID TestResetServices (VOID) {
   TestCapabilityStatus = OPTEE_SMC_RETURN_OK;
   TestCapabilityFlags = OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM;
   TestConfigStatus = OPTEE_SMC_RETURN_OK;
-  TestCacheHook = NULL;
   TestMapCalls = TestDelayCalls = TestDelayMicroseconds = TestTimeCalls = TestFvCalls = 0;
   TestMapStatus = EFI_SUCCESS;
   TestSmcHook = NULL;
@@ -173,7 +172,10 @@ VOID TestInit (VOID) {
   assert (OpteeClientApiInitialize (NULL) == EFI_SUCCESS);
 }
 VOID TestFini (VOID) {
-  assert (OpteeClientApiFinalize ());
+  for (UINTN Index = 0; Index < REE_FS_MAX_FILES; Index++) { Clear (&mFiles[Index]); }
+  if (mShm != NULL) { FreePool (mShm); }
+  mShm = NULL;
+  mInitialized = mBroken = FALSE;
   assert (HostLivePoolAllocations () == mInitialPools);
   TestResetServices ();
 }

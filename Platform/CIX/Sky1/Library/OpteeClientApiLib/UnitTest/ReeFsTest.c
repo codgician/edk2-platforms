@@ -78,8 +78,7 @@ static void Directions (UINT64 Fd) {
   static const UINT64 Wrong[] = {
     OPTEE_MSG_ATTR_TYPE_NONE, OPTEE_MSG_ATTR_TYPE_VALUE_INPUT,
     OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT, OPTEE_MSG_ATTR_TYPE_TMEM_INOUT,
-    OPTEE_MSG_ATTR_TYPE_TMEM_INPUT | OPTEE_MSG_ATTR_META,
-    OPTEE_MSG_ATTR_TYPE_RMEM_INPUT
+    OPTEE_MSG_ATTR_TYPE_TMEM_INPUT | OPTEE_MSG_ATTR_META
   };
   for (unsigned I = 0; I < sizeof (Wrong) / sizeof (Wrong[0]); I++) {
     strcpy (mName, "a");
@@ -202,18 +201,6 @@ static void Sequences (UINT64 Fd) {
     assert (Simple (OPTEE_RPC_FS_CLOSE, Handles[I], 0) == TEEC_SUCCESS);
   }
   assert (Open ("fds", 0, &Other) == TEEC_SUCCESS && Other > Last);
-  Last = Other;
-  /* Reset releases files/descriptors but must not recycle a descriptor ID. */
-  TestFini ();
-  TestInit ();
-  mName = OpteeShmAllocOwned (64, 8, OPTEE_SHM_RPC_APPL);
-  mIo = OpteeShmAllocOwned (4096, 8, OPTEE_SHM_RPC_APPL);
-  assert (mName && mIo);
-  assert (Open ("fds", 0, &Other) == TEEC_ERROR_ITEM_NOT_FOUND);
-  TestExpectDiagnostic ("REE-FS file missing", 0, TEEC_ERROR_ITEM_NOT_FOUND);
-  assert (Open ("fresh", 1, &Other) == TEEC_SUCCESS && Other > Last);
-  assert (Io (Last, 0, 1, 0) != TEEC_SUCCESS);
-  TestExpectDiagnostic ("REE-FS descriptor", Last, TEEC_ERROR_GENERIC);
 }
 int main (int argc, char **argv) {
   UINT64 Fd, Other;

@@ -24,12 +24,10 @@
 #define OPTEE_SMC_CALL_WITH_ARG            OPTEE_SMC_STD_CALL (4)
 #define OPTEE_SMC_GET_SHM_CONFIG           OPTEE_SMC_FAST_CALL (7)
 #define OPTEE_SMC_EXCHANGE_CAPABILITIES    OPTEE_SMC_FAST_CALL (9)
-#define OPTEE_SMC_DISABLE_SHM_CACHE        OPTEE_SMC_FAST_CALL (10)
 
 #define OPTEE_SMC_RETURN_OK               0x0
 #define OPTEE_SMC_RETURN_ETHREAD_LIMIT    0x1
 #define OPTEE_SMC_RETURN_UNKNOWN_FUNCTION 0xFFFFFFFF
-#define OPTEE_SMC_RETURN_ENOTAVAIL         0x7
 #define OPTEE_SMC_RETURN_RPC_PREFIX_MASK  0xFFFF0000
 #define OPTEE_SMC_RETURN_RPC_PREFIX       0xFFFF0000
 #define OPTEE_SMC_RETURN_IS_RPC(Ret) \
@@ -52,13 +50,9 @@
 #define OPTEE_MSG_ATTR_TYPE_VALUE_INPUT   0x1
 #define OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT  0x2
 #define OPTEE_MSG_ATTR_TYPE_VALUE_INOUT   0x3
-#define OPTEE_MSG_ATTR_TYPE_RMEM_INPUT    0x5
-#define OPTEE_MSG_ATTR_TYPE_RMEM_OUTPUT   0x6
-#define OPTEE_MSG_ATTR_TYPE_RMEM_INOUT    0x7
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INPUT    0x9
 #define OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT   0xa
 #define OPTEE_MSG_ATTR_TYPE_TMEM_INOUT    0xb
-#define OPTEE_MSG_ATTR_TYPE_MASK          0xff
 #define OPTEE_MSG_ATTR_META               BIT8
 
 #define OPTEE_MSG_CMD_OPEN_SESSION    0
@@ -92,11 +86,6 @@ typedef struct {
       UINT64    Size;
       UINT64    ShmRef;
     } Tmem;
-    struct {
-      UINT64    Offs;
-      UINT64    Size;
-      UINT64    ShmRef;
-    } Rmem;
     struct {
       UINT64    A;
       UINT64    B;
@@ -184,11 +173,6 @@ OpteeRpcDelay (
   IN UINT64  Milliseconds
   );
 
-VOID
-OpteeReeFsFinalize (
-  VOID
-  );
-
 //
 // Shared memory pool carved out of OP-TEE's reserved non-secure region.
 // Physical and virtual addresses are identical in UEFI, so the physical
@@ -197,24 +181,6 @@ OpteeReeFsFinalize (
 EFI_STATUS
 OpteeShmInit (
   VOID
-  );
-
-VOID *
-OpteeShmAlloc (
-  IN UINTN  Size,
-  IN UINTN  Alignment
-  );
-
-VOID
-OpteeShmFree (
-  IN VOID  *Buffer
-  );
-
-/** Return whether a range lies wholly in one live requested allocation. */
-BOOLEAN
-OpteeShmContains (
-  IN UINT64  Address,
-  IN UINT64  Size
   );
 
 /**
@@ -235,12 +201,6 @@ OpteeMsgParamToBuffer (
 UINT64
 OpteeMsgParamRejectValue (
   IN CONST OPTEE_MSG_PARAM  *Param
-  );
-
-VOID
-OpteeMsgParamSetSize (
-  IN OUT OPTEE_MSG_PARAM  *Param,
-  IN     UINTN            Size
   );
 
 /**

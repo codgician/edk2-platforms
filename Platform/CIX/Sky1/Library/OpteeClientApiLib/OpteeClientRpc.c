@@ -61,7 +61,7 @@ RpcLoadTa (
     return TEEC_ERROR_ITEM_NOT_FOUND;
   }
 
-  OpteeMsgParamSetSize (&Arg->Params[1], ImageSize);
+  Arg->Params[1].U.Tmem.Size = ImageSize;
   if (Buffer == NULL) {
     Result = TEEC_SUCCESS;
   } else if (ImageSize > BufferSize) {

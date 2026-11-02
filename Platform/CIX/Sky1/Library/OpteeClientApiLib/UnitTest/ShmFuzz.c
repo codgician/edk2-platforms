@@ -40,7 +40,7 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
           for (UINTN I = 0; I < Sizes[Slot]; I++) { assert (P[I] == Slot + 1); }
           assert (OpteeShmFreeOwned (P, Owners[Slot]));
           for (UINTN I = 0; I < MAX (1, (Sizes[Slot] + 4095) / 4096) * 4096; I++) { assert (P[I] == 0); }
-          assert (!OpteeShmContains ((UINTN)P, 1));
+          assert (!OpteeShmIsOwned ((UINTN)P, 0, Owners[Slot]));
           assert (!OpteeShmFreeOwned (P, Owners[Slot]));
           Pointers[Slot] = NULL;
         }
@@ -57,9 +57,6 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
           BOOLEAN Expected = Owners[Slot] >= OPTEE_SHM_RPC_APPL && Offset <= Sizes[Slot] && Length <= Sizes[Slot] - Offset;
           assert (OpteeMsgParamToBuffer (&Param, &Out, &OutSize) == Expected);
           if (Expected) { assert (Out == P + Offset && OutSize == Length); }
-          Param.Attr = OPTEE_MSG_ATTR_TYPE_RMEM_INPUT;
-          Param.U.Rmem.Offs = MAX_UINT64;
-          assert (!OpteeMsgParamToBuffer (&Param, &Out, &OutSize));
         }
         break;
       case 3:
@@ -67,8 +64,8 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
         break;
       case 4:
         if (P != NULL) {
-          assert (OpteeShmContains ((UINTN)P, Sizes[Slot]));
-          assert (!OpteeShmContains ((UINTN)P, Sizes[Slot] + 1));
+          assert (OpteeShmIsOwned ((UINTN)P, Sizes[Slot], Owners[Slot]));
+          assert (!OpteeShmIsOwned ((UINTN)P, Sizes[Slot] + 1, Owners[Slot]));
         }
         break;
     }

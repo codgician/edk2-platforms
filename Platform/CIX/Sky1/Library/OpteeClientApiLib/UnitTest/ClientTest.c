@@ -126,7 +126,6 @@ STATIC VOID ConfigFailures (VOID) {
     }
     assert (TestMapCalls == (Case == 8 ? 1 : 0));
     assert (HostLivePoolAllocations () == 0);
-    assert (OpteeClientApiFinalize ());
   }
   TestInit ();
   TestFini ();
@@ -155,7 +154,7 @@ STATIC VOID RpcConversation (ARM_SMC_ARGS *Args) {
       assert (mRpcArgument->Ret == TEEC_SUCCESS);
       Args->Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_FREE;
     } else {
-      assert (!OpteeShmContains ((UINTN)mRpcArgument, 1));
+      assert (!OpteeShmIsOwned ((UINTN)mRpcArgument, 0, OPTEE_SHM_RPC_ARG));
       Args->Arg0 = OPTEE_SMC_RETURN_OK;
     }
   }
@@ -172,23 +171,6 @@ STATIC VOID EndlessRpc (ARM_SMC_ARGS *Args) {
   }
 }
 
-STATIC UINTN mCacheCalls;
-STATIC BOOLEAN mCacheBad;
-STATIC BOOLEAN mCacheBadCookie;
-STATIC VOID CachePeer (ARM_SMC_ARGS *Args) {
-  assert (Args->Arg0 == OPTEE_SMC_DISABLE_SHM_CACHE);
-  mCacheCalls++;
-  if (mCacheBad) { Args->Arg0 = 2; return; }
-  if (mCacheCalls == 1) {
-    Args->Arg0 = OPTEE_SMC_RETURN_OK;
-    Args->Arg1 = (UINTN)mRpcArgument >> 32;
-    Args->Arg2 = (UINT32)(UINTN)mRpcArgument + (mCacheBadCookie ? 1 : 0);
-  } else {
-    assert (!OpteeShmContains ((UINTN)mRpcArgument, 1));
-    for (UINTN I = 0; I < 4096; I++) { assert (((UINT8 *)mRpcArgument)[I] == 0); }
-    Args->Arg0 = OPTEE_SMC_RETURN_ENOTAVAIL;
-  }
-}
 STATIC VOID TransportFailure (ARM_SMC_ARGS *Args) {
   mSmcCalls++;
   Args->Arg0 = OPTEE_SMC_RETURN_ETHREAD_LIMIT;
@@ -200,25 +182,25 @@ int main (int Argc, char **Argv) {
   if (strcmp (Argv[1], "config") == 0) { ConfigFailures (); return 0; }
   TestInit ();
   if (strcmp (Argv[1], "zero") == 0) {
-    UINT8 *P = OpteeShmAlloc (17, 4096);
+    UINT8 *P = OpteeShmAllocOwned (17, 4096, OPTEE_SHM_CLIENT);
     assert (P != NULL);
     for (UINTN I = 0; I < 4096; I++) { assert (P[I] == 0); }
     memset (P, 0x5C, 4096);
-    OpteeShmFree (P);
+    OpteeShmFreeOwned (P, OPTEE_SHM_CLIENT);
     for (UINTN I = 0; I < 4096; I++) { assert (P[I] == 0); }
   } else if (strcmp (Argv[1], "ownership") == 0) {
-    UINT8 *P = OpteeShmAlloc (4097, 4096);
-    UINT8 *Q = OpteeShmAlloc (17, 4096);
-    assert (P != NULL && Q != NULL && OpteeShmContains ((UINTN)P, 4097));
-    assert (!OpteeShmContains ((UINTN)P, 4098));
+    UINT8 *P = OpteeShmAllocOwned (4097, 4096, OPTEE_SHM_CLIENT);
+    UINT8 *Q = OpteeShmAllocOwned (17, 4096, OPTEE_SHM_CLIENT);
+    assert (P != NULL && Q != NULL && OpteeShmIsOwned ((UINTN)P, 4097, OPTEE_SHM_CLIENT));
+    assert (!OpteeShmIsOwned ((UINTN)P, 4098, OPTEE_SHM_CLIENT));
     assert (!OpteeShmFreeOwned (P + 4096, OPTEE_SHM_CLIENT));
     assert (!OpteeShmFreeOwned (P, OPTEE_SHM_RPC_APPL));
-    assert (OpteeShmAlloc (MAX_UINTN, 4096) == NULL);
-    assert (OpteeShmAlloc (1, MAX_UINTN) == NULL);
-    assert (OpteeShmAlloc (1, 3) == NULL);
-    assert (OpteeShmAlloc (1, 0) == NULL);
-    OpteeShmFree (P);
-    assert (!OpteeShmContains ((UINTN)P, 1));
+    assert (OpteeShmAllocOwned (MAX_UINTN, 4096, OPTEE_SHM_CLIENT) == NULL);
+    assert (OpteeShmAllocOwned (1, MAX_UINTN, OPTEE_SHM_CLIENT) == NULL);
+    assert (OpteeShmAllocOwned (1, 3, OPTEE_SHM_CLIENT) == NULL);
+    assert (OpteeShmAllocOwned (1, 0, OPTEE_SHM_CLIENT) == NULL);
+    OpteeShmFreeOwned (P, OPTEE_SHM_CLIENT);
+    assert (!OpteeShmIsOwned ((UINTN)P, 0, OPTEE_SHM_CLIENT));
     assert (OpteeShmIsOwned ((UINTN)Q, 17, OPTEE_SHM_CLIENT));
     assert (!OpteeShmFreeOwned (P, OPTEE_SHM_CLIENT));
   } else if (strcmp (Argv[1], "size") == 0) {
@@ -251,10 +233,10 @@ int main (int Argc, char **Argv) {
     assert (OpteeClientCloseSession (&Session) == TEEC_ERROR_GENERIC);
     TestExpectDiagnostic ("close secure result", TEEC_ERROR_GENERIC, TEEC_ERROR_GENERIC);
     assert (Session.ctx == &Ctx && Session.session_id == 7);
-    VOID *All = OpteeShmAlloc (TEST_POOL_SIZE, 4096); assert (All != NULL);
+    VOID *All = OpteeShmAllocOwned (TEST_POOL_SIZE, 4096, OPTEE_SHM_CLIENT); assert (All != NULL);
     assert (OpteeClientCloseSession (&Session) == TEEC_ERROR_OUT_OF_MEMORY);
     assert (Session.ctx == &Ctx && Session.session_id == 7);
-    OpteeShmFree (All);
+    OpteeShmFreeOwned (All, OPTEE_SHM_CLIENT);
     mResponseResult = TEEC_SUCCESS;
     mMutation = 8;
     assert (OpteeClientCloseSession (&Session) == TEEC_ERROR_COMMUNICATION);
@@ -298,23 +280,23 @@ int main (int Argc, char **Argv) {
     Op.params[0].tmpref.buffer = Input; Op.params[0].tmpref.size = sizeof (Input);
     assert (TEEC_InvokeCommand (&Session, 42, &Op, NULL) == TEEC_ERROR_NOT_SUPPORTED);
     for (UINTN I = 0; I < 8192; I++) { assert (TestPool[I] == 0); }
-    assert (OpteeShmAlloc (TEST_POOL_SIZE, 4096) != NULL);
+    assert (OpteeShmAllocOwned (TEST_POOL_SIZE, 4096, OPTEE_SHM_CLIENT) != NULL);
   } else if (strcmp (Argv[1], "rpc") == 0) {
-    OPTEE_MSG_ARG *Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (0), 4096);
+    OPTEE_MSG_ARG *Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (0), 4096, OPTEE_SHM_CLIENT);
     assert (Arg != NULL); TestSmcHook = RpcConversation;
     assert (OpteeCallWithArg (Arg) == TEEC_SUCCESS && mRpcStep == 4);
     assert (TestDelayCalls == 1 && TestDelayMicroseconds == 1000);
-    OpteeShmFree (Arg);
+    OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
   } else if (strcmp (Argv[1], "loop") == 0) {
-    OPTEE_MSG_ARG *Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (0), 4096);
+    OPTEE_MSG_ARG *Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (0), 4096, OPTEE_SHM_CLIENT);
     TestSmcHook = EndlessRpc;
     assert (OpteeCallWithArg (Arg) == TEEC_ERROR_COMMUNICATION);
     TestExpectDiagnostic ("RPC loop bound", OPTEE_RPC_MAX_CALLS, TEEC_ERROR_COMMUNICATION);
     assert (mSmcCalls == OPTEE_RPC_MAX_CALLS + 1);
-    assert (!OpteeShmContains ((UINTN)TestPool + 4096, 1));
+    assert (!OpteeShmIsOwned ((UINTN)TestPool + 4096, 0, OPTEE_SHM_RPC_ARG));
     assert (OpteeCallWithArg (Arg) == TEEC_ERROR_COMMUNICATION);
     assert (mSmcCalls == OPTEE_RPC_MAX_CALLS + 1);
-    OpteeShmFree (Arg);
+    OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
   } else if (strcmp (Argv[1], "transport") == 0) {
     TEEC_Context Ctx = { 1 }; TEEC_Session Session = { &Ctx, 7 };
     TestSmcHook = TransportFailure;
@@ -323,26 +305,6 @@ int main (int Argc, char **Argv) {
     assert (Session.ctx == &Ctx && Session.session_id == 7);
     assert (mSmcCalls == 1);
     assert (OpteeClientCloseSession (&Session) != TEEC_SUCCESS && mSmcCalls == 1);
-  } else if (strcmp (Argv[1], "cache") == 0 || strcmp (Argv[1], "cache_failure") == 0 || strcmp (Argv[1], "cache_cookie") == 0) {
-    mCacheBadCookie = strcmp (Argv[1], "cache_cookie") == 0;
-    mCacheBad = strcmp (Argv[1], "cache_failure") == 0;
-    mRpcArgument = OpteeShmAllocOwned (64, 4096, OPTEE_SHM_RPC_ARG);
-    assert (mRpcArgument != NULL); memset (mRpcArgument, 0x5C, 4096);
-    TestCacheHook = CachePeer;
-    assert (OpteeClientApiFinalize () == !(mCacheBad || mCacheBadCookie));
-    if (mCacheBad || mCacheBadCookie) {
-      TestExpectDiagnostic ("SHM cache drain", mCacheBad ? 2 : (UINTN)mRpcArgument + 1, TEEC_ERROR_COMMUNICATION);
-    }
-    assert (mCacheCalls == ((mCacheBad || mCacheBadCookie) ? 1 : 2));
-    assert (HostLivePoolAllocations () == 0);
-    for (UINTN I = 0; I < 4096; I++) { assert (((UINT8 *)mRpcArgument)[I] == 0); }
-    if (mCacheBad || mCacheBadCookie) { assert (OpteeClientApiInitialize (NULL) == EFI_DEVICE_ERROR); }
-    return 0;
-  } else if (strcmp (Argv[1], "finalize") == 0) {
-    UINT8 *P = OpteeShmAlloc (17, 4096); memset (P, 0x5C, 4096);
-    assert (OpteeClientApiFinalize ());
-    for (UINTN I = 0; I < 4096; I++) { assert (P[I] == 0); }
-    assert (HostLivePoolAllocations () == 0); return 0;
   } else { abort (); }
   TestFini ();
   return 0;

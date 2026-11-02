@@ -38,16 +38,6 @@ OpteeClientApiInitialize (
   IN EFI_HANDLE  ImageHandle
   );
 
-/**
-  Scrub/release all normal-world client storage and drain cached RPC arguments.
-
-  This releases pool allocations and must run while pool services are legal,
-  not after ExitBootServices. It does not itself close TA sessions.
-
-  @retval TRUE   All local storage was released; RPC cache drain succeeded.
-  @retval FALSE  A call is active or secure-world cache drain failed. A failed
-                 drain poisons the client: only a reboot may resume its use.
-**/
 BOOLEAN
 OpteeClientApiFinalize (
   VOID

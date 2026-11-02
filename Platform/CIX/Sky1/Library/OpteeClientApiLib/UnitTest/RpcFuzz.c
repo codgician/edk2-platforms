@@ -56,7 +56,7 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   Length = sizeof (OPTEE_MSG_ARG) + Data[0] % (OPTEE_RPC_MAX_PARAMS * sizeof (OPTEE_MSG_PARAM) + 1);
   Owner = (Data[1] & 1) ? OPTEE_SHM_RPC_ARG : OPTEE_SHM_CLIENT;
   Arg = OpteeShmAllocOwned (Length, 8, Owner);
-  Client = OpteeShmAlloc (32, 8);
+  Client = OpteeShmAllocOwned (32, 8, OPTEE_SHM_CLIENT);
   Payload = OpteeShmAllocOwned (32, 8, OPTEE_SHM_RPC_APPL);
   assert (Arg != NULL && Client != NULL && Payload != NULL);
   SetMem (Client, 32, 0x5a);
@@ -122,7 +122,7 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   assert (OpteeShmIsOwned ((UINT64)(UINTN)Client, 32, OPTEE_SHM_CLIENT));
   if (Safe && PayloadFreed) {
     assert (Arg->Ret == TEEC_SUCCESS);
-    assert (!OpteeShmContains ((UINTN)Payload, 1));
+    assert (!OpteeShmIsOwned ((UINTN)Payload, 0, OPTEE_SHM_RPC_APPL));
   } else {
     assert (OpteeShmIsOwned ((UINT64)(UINTN)Payload, 32, OPTEE_SHM_RPC_APPL));
   }
@@ -152,7 +152,7 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   Arg->Params[0].U.Value.A = Data[0] % 3;
   Arg->Params[0].U.Value.B = (UINTN)Allocated;
   assert (OpteeRpcHandle (&Args) && Arg->Ret == TEEC_SUCCESS);
-  assert (!OpteeShmContains ((UINTN)Allocated, 1));
+  assert (!OpteeShmIsOwned ((UINTN)Allocated, 0, Owner));
   assert (OpteeRpcHandle (&Args) && Arg->Ret == TEEC_ERROR_BAD_PARAMETERS);
   TestFini ();
   return 0;

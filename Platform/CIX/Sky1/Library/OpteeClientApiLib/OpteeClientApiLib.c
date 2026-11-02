@@ -231,15 +231,6 @@ OpteeShmAllocOwned (
   return NULL;
 }
 
-VOID *
-OpteeShmAlloc (
-  IN UINTN  Size,
-  IN UINTN  Alignment
-  )
-{
-  return OpteeShmAllocOwned (Size, Alignment, OPTEE_SHM_CLIENT);
-}
-
 BOOLEAN
 OpteeShmFreeOwned (
   IN VOID    *Buffer,
@@ -260,14 +251,6 @@ OpteeShmFreeOwned (
   return TRUE;
 }
 
-VOID
-OpteeShmFree (
-  IN VOID  *Buffer
-  )
-{
-  OpteeShmFreeOwned (Buffer, OPTEE_SHM_CLIENT);
-}
-
 BOOLEAN
 OpteeShmIsOwned (
   IN UINT64  Address,
@@ -279,35 +262,6 @@ OpteeShmIsOwned (
 
   Record = ShmRecord (Address);
   return (Record != NULL) && (Record->Owner == Owner) && (Size <= Record->Size);
-}
-
-BOOLEAN
-OpteeShmContains (
-  IN UINT64  Address,
-  IN UINT64  Size
-  )
-{
-  UINTN   Page;
-  UINT64  Offset;
-
-  if ((mShm == NULL) || (Address < mShmBase) ||
-      ((Address - mShmBase) / SHM_PAGE_SIZE >= mShmPages))
-  {
-    return FALSE;
-  }
-
-  Page = (UINTN)((Address - mShmBase) / SHM_PAGE_SIZE);
-  if (mShm[Page].Owner == 0) {
-    return FALSE;
-  }
-
-  while ((Page > 0) && (mShm[Page].Pages == 0)) {
-    Page--;
-  }
-
-  Offset = Address - (mShmBase + Page * SHM_PAGE_SIZE);
-  return (mShm[Page].Pages != 0) && (Offset <= mShm[Page].Size) &&
-         (Size <= mShm[Page].Size - Offset);
 }
 
 BOOLEAN
@@ -379,15 +333,6 @@ OpteeMsgParamRejectValue (
   }
 
   return Param->U.Tmem.Size;
-}
-
-VOID
-OpteeMsgParamSetSize (
-  IN OUT OPTEE_MSG_PARAM  *Param,
-  IN     UINTN            Size
-  )
-{
-  Param->U.Tmem.Size = Size;
 }
 
 STATIC
@@ -537,76 +482,6 @@ OpteeClientApiInitialize (
   return Status;
 }
 
-BOOLEAN
-OpteeClientApiFinalize (
-  VOID
-  )
-{
-  UINTN         Index;
-  ARM_SMC_ARGS  Args;
-  UINT64        Address;
-  BOOLEAN       Drained;
-  BOOLEAN       HaveRpc;
-
-  if (mInCall) {
-    return FALSE;
-  }
-
-  HaveRpc = FALSE;
-  for (Index = 0; Index < mShmPages; Index++) {
-    if ((mShm[Index].Pages != 0) && (mShm[Index].Owner == OPTEE_SHM_RPC_ARG)) {
-      HaveRpc = TRUE;
-      break;
-    }
-  }
-
-  Drained = !HaveRpc;
-  if (HaveRpc && !mBroken) {
-    // Secure world can retain RPC arguments between calls. Drain its cache
-    // before normal-world allocations become reusable by a later client.
-    for (Index = 0; Index <= mShmPages; Index++) {
-      ZeroMem (&Args, sizeof (Args));
-      Args.Arg0 = OPTEE_SMC_DISABLE_SHM_CACHE;
-      ArmCallSmc (&Args);
-      if (Args.Arg0 == OPTEE_SMC_RETURN_ENOTAVAIL) {
-        Drained = TRUE;
-        break;
-      }
-
-      Address = ((UINT64)(UINT32)Args.Arg1 << 32) | (UINT32)Args.Arg2;
-      if ((Args.Arg0 != OPTEE_SMC_RETURN_OK) ||
-          !OpteeShmFreeOwned ((VOID *)(UINTN)Address, OPTEE_SHM_RPC_ARG))
-      {
-        OpteeReject ("SHM cache drain", (Args.Arg0 != OPTEE_SMC_RETURN_OK) ? Args.Arg0 : Address, TEEC_ERROR_COMMUNICATION);
-        break;
-      }
-    }
-  }
-
-  if (!Drained) {
-    mBroken = TRUE;
-  }
-
-  OpteeReeFsFinalize ();
-  if (mShm != NULL) {
-    for (Index = 0; Index < mShmPages; Index++) {
-      if (mShm[Index].Pages != 0) {
-        OpteeShmFreeOwned ((VOID *)(UINTN)(mShmBase + Index * SHM_PAGE_SIZE), mShm[Index].Owner);
-      }
-    }
-
-    ZeroMem (mShm, mShmPages * sizeof (*mShm));
-    FreePool (mShm);
-  }
-
-  mShm         = NULL;
-  mShmBase     = 0;
-  mShmPages    = 0;
-  mInitialized = FALSE;
-  mDelayMs     = 0;
-  return Drained;
-}
-
 typedef struct {
   VOID               *Buffer[TEEC_CONFIG_PAYLOAD_REF_COUNT];
   UINTN              Capacity[TEEC_CONFIG_PAYLOAD_REF_COUNT];
@@ -659,7 +534,7 @@ SetMsgParams (
         Params[Index].Attr     = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT + Type - TEEC_MEMREF_TEMP_INPUT;
         Bounce->Capacity[Index] = Size;
         if (Size != 0) {
-          Bounce->Buffer[Index] = OpteeShmAlloc (Size, SHM_PAGE_SIZE);
+          Bounce->Buffer[Index] = OpteeShmAllocOwned (Size, SHM_PAGE_SIZE, OPTEE_SHM_CLIENT);
           if (Bounce->Buffer[Index] == NULL) {
             return TEEC_ERROR_OUT_OF_MEMORY;
           }
@@ -771,7 +646,7 @@ FreeBounce (
   UINTN  Index;
 
   for (Index = 0; Index < TEEC_CONFIG_PAYLOAD_REF_COUNT; Index++) {
-    OpteeShmFree (Bounce->Buffer[Index]);
+    OpteeShmFreeOwned (Bounce->Buffer[Index], OPTEE_SHM_CLIENT);
   }
 }
 
@@ -791,16 +666,6 @@ TEEC_InitializeContext (
 
   context->fd = 1;
   return TEEC_SUCCESS;
-}
-
-void
-TEEC_FinalizeContext (
-  TEEC_Context  *context
-  )
-{
-  if (context != NULL) {
-    context->fd = -1;
-  }
 }
 
 TEEC_Result
@@ -830,7 +695,7 @@ TEEC_OpenSession (
     goto Done;
   }
 
-  Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (TEEC_CONFIG_PAYLOAD_REF_COUNT + 2), SHM_PAGE_SIZE);
+  Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (TEEC_CONFIG_PAYLOAD_REF_COUNT + 2), SHM_PAGE_SIZE, OPTEE_SHM_CLIENT);
   if (Arg == NULL) {
     Result = TEEC_ERROR_OUT_OF_MEMORY;
     goto Done;
@@ -889,7 +754,7 @@ TEEC_OpenSession (
   }
 
   FreeBounce (&Bounce);
-  OpteeShmFree (Arg);
+  OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
 Done:
   if (returnOrigin != NULL) {
     *returnOrigin = Origin;
@@ -912,7 +777,7 @@ OpteeClientCloseSession (
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
-  Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (0), SHM_PAGE_SIZE);
+  Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (0), SHM_PAGE_SIZE, OPTEE_SHM_CLIENT);
   if (Arg == NULL) {
     return TEEC_ERROR_OUT_OF_MEMORY;
   }
@@ -934,20 +799,12 @@ OpteeClientCloseSession (
     }
   }
 
-  OpteeShmFree (Arg);
+  OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
   if (Result == TEEC_SUCCESS) {
     ZeroMem (Session, sizeof (*Session));
   }
 
   return Result;
-}
-
-void
-TEEC_CloseSession (
-  TEEC_Session  *session
-  )
-{
-  OpteeClientCloseSession (session);
 }
 
 TEEC_Result
@@ -971,7 +828,7 @@ TEEC_InvokeCommand (
     goto Done;
   }
 
-  Arg = OpteeShmAlloc (OPTEE_MSG_ARG_SIZE (TEEC_CONFIG_PAYLOAD_REF_COUNT), SHM_PAGE_SIZE);
+  Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (TEEC_CONFIG_PAYLOAD_REF_COUNT), SHM_PAGE_SIZE, OPTEE_SHM_CLIENT);
   if (Arg == NULL) {
     Result = TEEC_ERROR_OUT_OF_MEMORY;
     goto Done;
@@ -999,7 +856,7 @@ TEEC_InvokeCommand (
   }
 
   FreeBounce (&Bounce);
-  OpteeShmFree (Arg);
+  OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
 Done:
   if (returnOrigin != NULL) {
     *returnOrigin = Origin;

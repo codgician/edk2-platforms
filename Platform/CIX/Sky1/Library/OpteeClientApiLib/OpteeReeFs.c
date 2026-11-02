@@ -2,7 +2,7 @@
   Bounded, volatile OP-TEE REE filesystem for the TA version database.
 
   The fTPM NV uses secure NOR, not this filesystem. Files here survive CLOSE
-  but not client finalization. They provide no persistent anti-rollback floor.
+  but not a reboot. They provide no persistent anti-rollback floor.
   Unlink and rename-overwrite deliberately invalidate all descriptors to the
   removed file. This conservative policy releases and scrubs storage at once;
   unlike slot-based descriptors, a stale ID can never name a replacement.
@@ -38,7 +38,6 @@ typedef struct {
 STATIC REE_FS_FILE        mFiles[REE_FS_MAX_FILES];
 STATIC REE_FS_DESCRIPTOR  mDescriptors[REE_FS_MAX_DESCRIPTORS];
 STATIC UINTN             mTotalCapacity;
-// Never reset this counter: even a finalized client's descriptors stay stale.
 STATIC UINT32            mLastDescriptorId;
 
 /** Only rejection return sites log; nested parsing/allocation helpers stay quiet. */
@@ -136,21 +135,6 @@ Clear (
 
   mTotalCapacity -= File->Capacity;
   ZeroMem (File, sizeof (*File));
-}
-
-/** Reset all volatile state except the never-reused descriptor ID counter. */
-VOID
-OpteeReeFsFinalize (
-  VOID
-  )
-{
-  UINTN  Index;
-
-  for (Index = 0; Index < REE_FS_MAX_FILES; Index++) {
-    Clear (&mFiles[Index]);
-  }
-
-  ZeroMem (mDescriptors, sizeof (mDescriptors));
 }
 
 /** Resize atomically; capacity is page-rounded and all new bytes are zero. */
@@ -328,7 +312,7 @@ FsReadWrite (
       CopyMem (Buffer, File->Data + (UINTN)Offset, Copy);
     }
 
-    OpteeMsgParamSetSize (&Arg->Params[1], Copy);
+    Arg->Params[1].U.Tmem.Size = Copy;
     return TEEC_SUCCESS;
   }
 

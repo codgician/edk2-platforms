@@ -1,5 +1,5 @@
-# Build the production client, allocator, RPC dispatcher and filesystem together.
-set(OPTEE_SOURCES ../OpteeClientApiLib.c ../OpteeClientRpc.c ../OpteeReeFs.c TestSupport.c
+# TestSupport.c builds the production client, allocator, RPC dispatcher and filesystem together.
+set(OPTEE_SOURCES TestSupport.c
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLib.c"
   "${EDK_ROOT}/MdePkg/Library/BasePrintLib/PrintLibInternal.c")
 function(optee_host_options NAME)
@@ -10,7 +10,7 @@ function(optee_host_options NAME)
 endfunction()
 sky1_host_test(optee_client SOURCES ClientTest.c ${OPTEE_SOURCES})
 optee_host_options(optee_client)
-foreach(CASE zero ownership size metadata close open open_rejected partial rpc loop transport cache cache_failure cache_cookie finalize)
+foreach(CASE zero ownership size metadata close open open_rejected partial rpc loop transport)
   add_test(NAME optee_client_${CASE} COMMAND optee_client ${CASE})
 endforeach()
 sky1_host_test(reef_fs_test SOURCES ReeFsTest.c ${OPTEE_SOURCES})
