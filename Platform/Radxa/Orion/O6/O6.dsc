@@ -135,6 +135,13 @@
 
   DEFINE LINUX_ACPI_CONFIG_OVERRIDE = TRUE
 
+# PCIe ACPI namespace: TRUE exposes only the PNP0A08 host bridges (mainline
+# Linux); build with -D PCIE_ACPI_MAINLINE_NAMESPACE=FALSE for kernels that
+# bind the vendor CIXH2020 controllers.
+!ifndef PCIE_ACPI_MAINLINE_NAMESPACE
+  DEFINE PCIE_ACPI_MAINLINE_NAMESPACE = TRUE
+!endif
+
 # Firmware TPM: CIX's fTPM TA in the stock OP-TEE, with firmware acting as
 # tee-supplicant. Measurements start in DXE (Tcg2Dxe).
   DEFINE FTPM_SUPPORT               = TRUE
@@ -289,6 +296,10 @@
 !if $(LINUX_ACPI_CONFIG_OVERRIDE) == TRUE
   GCC:*_*_*_ASLPP_FLAGS           = -DLINUX_ACPI_CONFIG_OVERRIDE
   GCC:*_*_*_ASLPP_FLAGS           = -I$(WORKSPACE)/edk2-platforms/Platform/Radxa/Orion/O6/Drivers
+!endif
+
+!if $(PCIE_ACPI_MAINLINE_NAMESPACE) == TRUE
+  GCC:*_*_*_ASLPP_FLAGS           = -DPCIE_ACPI_MAINLINE_NAMESPACE
 !endif
 
 !if $(STMM_SUPPORT) == TRUE

@@ -26,6 +26,15 @@ External (PCIE_X1_1_VCC_REGULATOR, DeviceObj)
 External (PCIE_X1_0_VCC_REGULATOR, DeviceObj)
 #endif
 
+//
+// PCIE_ACPI_MAINLINE_NAMESPACE: the PNP0A08 host bridges (Dsdt-Pcie.asl) own
+// the root ports. The vendor CIXH2020 controllers below describe the same
+// windows, so they report absent instead of claiming those resources a second
+// time; mainline Linux has no ACPI driver for them. The PHY and regulator
+// devices stay as they are. Without the define (vendor mode) both are exposed
+// for kernels that bind CIXH2020.
+//
+
 Device (PRC0) { /* PCIE0 X8 */
   Name (_HID, "CIXH2020")
   Name (_UID, 0x0)
@@ -108,12 +117,16 @@ Device (PRC0) { /* PCIE0 X8 */
 
   // PCIe is only available if PCIe link is up
   Method (_STA, 0x0, Serialized) {
+#ifdef PCIE_ACPI_MAINLINE_NAMESPACE
+    Return (0x0)
+#else
     // Check if link is already up
     If(\_SB.GETV(ARV_PCIE_RP_00_LINK_STS_OFFSET)){
       Return (0xF)
     } else {
       Return (0x0)
     }
+#endif
   }
   Name (_CRS, ResourceTemplate () {
     Memory32Fixed (ReadWrite, 0x0a010000, 0x10000)
@@ -403,11 +416,15 @@ Device (PRC1) { /* PCIE2 X4 */
 
   // PCIe is only available if PCIe link is up
   Method (_STA, 0x0, Serialized) {
+#ifdef PCIE_ACPI_MAINLINE_NAMESPACE
+    Return (0x0)
+#else
     If(\_SB.GETV(ARV_PCIE_RP_01_LINK_STS_OFFSET)){
       Return (0xF)
     } else {
       Return (0x0)
     }
+#endif
   }
   Name (_CRS, ResourceTemplate () {
     Memory32Fixed (ReadWrite, 0x0a070000, 0x10000)
@@ -680,11 +697,15 @@ Device (PRC2) { /* PCIE3 X2 */
 
   // PCIe is only available if PCIe link is up
   Method (_STA, 0x0, Serialized) {
+#ifdef PCIE_ACPI_MAINLINE_NAMESPACE
+    Return (0x0)
+#else
     If(\_SB.GETV(ARV_PCIE_RP_02_LINK_STS_OFFSET)){
       Return (0xF)
     } else {
       Return (0x0)
     }
+#endif
   }
   Name (_CRS, ResourceTemplate () {
     Memory32Fixed (ReadWrite, 0x0a0c0000, 0x10000)
@@ -883,11 +904,15 @@ Device (PRC3) { /* PCIE4 X1_1 */
 
   // PCIe is only available if PCIe link is up
   Method (_STA, 0x0, Serialized) {
+#ifdef PCIE_ACPI_MAINLINE_NAMESPACE
+    Return (0x0)
+#else
     If(\_SB.GETV(ARV_PCIE_RP_03_LINK_STS_OFFSET)){
       Return (0xF)
     } else {
       Return (0x0)
     }
+#endif
   }
   Name (_CRS, ResourceTemplate () {
     Memory32Fixed (ReadWrite, 0x0a0e0000, 0x10000)
@@ -1094,11 +1119,15 @@ Device (PRC4) { /* PCIE3 X1_0 */
 
   // PCIe is only available if PCIe link is up
   Method (_STA, 0x0, Serialized) {
+#ifdef PCIE_ACPI_MAINLINE_NAMESPACE
+    Return (0x0)
+#else
     If(\_SB.GETV(ARV_PCIE_RP_04_LINK_STS_OFFSET)){
       Return (0xF)
     } else {
       Return (0x0)
     }
+#endif
   }
   Name (_CRS, ResourceTemplate () {
     Memory32Fixed (ReadWrite, 0x0a0d0000, 0x10000)
