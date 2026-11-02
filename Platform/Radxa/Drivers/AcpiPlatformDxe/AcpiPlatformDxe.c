@@ -14,6 +14,7 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Protocol/PlatformConfigParamsManageProtocol.h>
 #include <RadxaSetupVar.h>
+#include <PlatformInfoTypes.h>
 
 EFI_GUID  pAcpiPlatformTableStorageGuid = {
   0xc1bb2ead, 0xc76a, 0x45dd, { 0x90, 0xb5, 0xd4, 0x02, 0x55, 0x17, 0x0a, 0x9c }
@@ -29,7 +30,7 @@ AcpiHookFunctionOnReadyToBoot (
   EFI_STATUS          Status = EFI_SUCCESS;
   CIX_PLATFORM_CONFIG_PARAMS_MANAGE_PROTOCOL  *PlatformConfigManage;
   CHAR8               *SsdtTableId = "ORIONO6";
-  CHAR16 *            SystemProductName;
+  UINT8               BoardId;
   RADXA_SETUP_DATA    RadxaSetupVar;
   UINTN               VarSize;
 
@@ -52,13 +53,15 @@ AcpiHookFunctionOnReadyToBoot (
     DEBUG ((DEBUG_ERROR, "%a: LocateProtocol failed: %r\n", __FUNCTION__, Status));
   }
 
-  SystemProductName = (CHAR16 *)FixedPcdGetPtr (PcdSystemProductName);
+  BoardId = FixedPcdGet8(PcdBoardId);
 
-  if (!StrCmp (L"Radxa Orion O6", SystemProductName)) {
-    Status = UpdateSsdtNameAslCode ((UINT8 *) SsdtTableId, AsciiStrLen (SsdtTableId), SIGNATURE_32 ('E', 'C', 'F', 'M'), &(PlatformConfigManage->Data->EcFanMode), sizeof (PlatformConfigManage->Data->EcFanMode));
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a: Update ECFM failed, Status=%r\n", __FUNCTION__, Status));
-    }
+  switch (BoardId) {
+    case TypeRadxaOrionO6:
+      Status = UpdateSsdtNameAslCode ((UINT8 *) SsdtTableId, AsciiStrLen (SsdtTableId), SIGNATURE_32 ('E', 'C', 'F', 'M'), &(PlatformConfigManage->Data->EcFanMode), sizeof (PlatformConfigManage->Data->EcFanMode));
+      if (EFI_ERROR (Status)) {
+        DEBUG ((DEBUG_ERROR, "%a: Update ECFM failed, Status=%r\n", __FUNCTION__, Status));
+      }
+      break;
   }
 
   Status = UpdateNameAslCode (SIGNATURE_32 ('S','C','M','S'), &(RadxaSetupVar.EnableAcpiScmi), sizeof (RadxaSetupVar.EnableAcpiScmi));

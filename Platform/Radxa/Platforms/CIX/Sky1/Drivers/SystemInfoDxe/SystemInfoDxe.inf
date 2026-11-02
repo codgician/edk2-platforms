@@ -66,6 +66,7 @@
   gRadxaTokenSpaceGuid.PcdEdk2PlatformsCommitHash
   gCixPlatformTokenSpaceGuid.PcdEcAcpiI2cEn
   gArmTokenSpaceGuid.PcdSystemProductName
+  gRadxaTokenSpaceGuid.PcdBoardId
 
 [Depex]
   TRUE

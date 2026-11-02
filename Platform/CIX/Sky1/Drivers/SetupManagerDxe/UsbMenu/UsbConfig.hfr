@@ -44,6 +44,15 @@
         option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
         option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
       endoneof;
+
+      oneof varid   = PlatformSetupVar.Usb3Control0DataRole,
+        prompt      = STRING_TOKEN(STR_USB3_DRD_DATA_ROLE_PROMPT),
+        help        = STRING_TOKEN(STR_USB_DATA_ROLE_HELP),
+        default     = FixedPcdGetBool(PcdUsb3Control0DataRole),
+        option text = STRING_TOKEN(STR_USB_DATA_ROLE_HOST), value = 0, flags = RESET_REQUIRED;
+        option text = STRING_TOKEN(STR_USB_DATA_ROLE_DEVICE),  value = 1, flags = RESET_REQUIRED;
+      endoneof;
+
       oneof varid   = PlatformSetupVar.Usb3Control1Enable,
         prompt      = STRING_TOKEN(STR_USB3_CONTROL_PROMPT1),
         help        = STRING_TOKEN(STR_USB3_CONTROL_HELP),
@@ -52,12 +61,12 @@
         option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
       endoneof;
 
-      oneof varid   = PlatformSetupVar.Usb3Control0DataRole,
-        prompt      = STRING_TOKEN(STR_USB3_DRD_DATA_ROLE_PROMPT),
-        help        = STRING_TOKEN(STR_USB_DATA_ROLE_HELP),
-        default     = FixedPcdGetBool(PcdUsb3Control0DataRole),
-        option text = STRING_TOKEN(STR_USB_DATA_ROLE_HOST), value = 0, flags = RESET_REQUIRED;
-        option text = STRING_TOKEN(STR_USB_DATA_ROLE_DEVICE),  value = 1, flags = RESET_REQUIRED;
+      oneof varid   = PlatformSetupVar.UsbCDrdControl0Enable,
+        prompt      = STRING_TOKEN(STR_USBC_DRD_CONTROL_PROMPT),
+        help        = STRING_TOKEN(STR_USBC_DRD_CONTROL_HELP),
+        default     = FixedPcdGetBool(PcdUsbCDrdControl0Enable),
+        option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
+        option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
       endoneof;
 
       oneof varid   = PlatformSetupVar.UsbCDrdControl0DataRole,
@@ -68,5 +77,28 @@
         option text = STRING_TOKEN(STR_USB_DATA_ROLE_DEVICE),  value = 1, flags = RESET_REQUIRED;
       endoneof;
 
+      oneof varid   = PlatformSetupVar.UsbCControl0Enable,
+        prompt      = STRING_TOKEN(STR_USBC_CONTROL_PROMPT0),
+        help        = STRING_TOKEN(STR_USBC_CONTROL_HELP),
+        default     = FixedPcdGetBool(PcdUsbCControl0Enable),
+        option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
+        option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
+      endoneof;
+
+      oneof varid   = PlatformSetupVar.UsbCControl1Enable,
+        prompt      = STRING_TOKEN(STR_USBC_CONTROL_PROMPT1),
+        help        = STRING_TOKEN(STR_USBC_CONTROL_HELP),
+        default     = FixedPcdGetBool(PcdUsbCControl1Enable),
+        option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
+        option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
+      endoneof;
+
+      oneof varid   = PlatformSetupVar.UsbCControl2Enable,
+        prompt      = STRING_TOKEN(STR_USBC_CONTROL_PROMPT2),
+        help        = STRING_TOKEN(STR_USBC_CONTROL_HELP),
+        default     = FixedPcdGetBool(PcdUsbCControl2Enable),
+        option text = STRING_TOKEN(STR_DISABLED), value = 0, flags = RESET_REQUIRED;
+        option text = STRING_TOKEN(STR_ENABLED),  value = 1, flags = RESET_REQUIRED;
+      endoneof;
 
     endform;

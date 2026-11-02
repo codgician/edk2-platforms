@@ -10,6 +10,7 @@
 
 #include <DtPlatformDxe.h>
 #include <Uefi/UefiMultiPhase.h>
+#include <PlatformInfoTypes.h>
 #include "PlatformConfigHii.h"
 #include "../../Include/RadxaSetupVar.h"
 
@@ -171,7 +172,7 @@ endif;
     endoneof;
 #endif
 
-suppressif NOT FixedPcdGetBool (PcdRegisterFastBootSupport);
+suppressif FixedPcdGetBool (PcdRegisterFastBootSupport) == 0;
     oneof varid   = PlatformSetupVar.FastBootHotKeyEnable,
       prompt      = STRING_TOKEN(STR_FASTBOOT_HOTKEY),
       help        = STRING_TOKEN(STR_FASTBOOT_HOTKEY_HELP),
