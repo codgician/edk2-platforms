@@ -81,6 +81,12 @@ STATIC UINTN                           mTraceSize;
 #define USB_HANDLE     ((EFI_HANDLE)(UINTN)4)
 STATIC NON_DISCOVERABLE_DEVICE   mUsbHost = { .Type = &gEdkiiNonDiscoverableXhciDeviceGuid };
 STATIC UINTN                     mEndOfDxeCount;
+STATIC EFI_DEVICE_PATH_PROTOCOL  mGopPath = {
+  END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 }
+};
+STATIC CONSOLE_TYPE              mVarType[8];
+STATIC VOID                      *mVarPath[8];
+STATIC UINTN                     mVarCount;
 
 STATIC VOID
 Trace (
@@ -374,7 +380,12 @@ EfiBootManagerUpdateConsoleVariable (
   EFI_DEVICE_PATH_PROTOCOL *Remove
   )
 {
-  abort ();
+  assert_null (Remove);
+  assert_true (mVarCount < ARRAY_SIZE (mVarType));
+  mVarType[mVarCount]   = Type;
+  mVarPath[mVarCount++] = Add;
+  Trace ('V');
+  return EFI_SUCCESS;
 }
 EFI_STATUS EFIAPI
 EfiBootManagerRegisterContinueKeyOption (
@@ -448,8 +459,7 @@ DevicePathFromHandle (
   EFI_HANDLE Handle
   )
 {
-  // FilterAndProcess only formats the path for its debug report.
-  return NULL;
+  return (Handle == GOP_HANDLE) ? &mGopPath : NULL;
 }
 BOOLEAN EFIAPI
 PostCodeEnabled (
@@ -492,6 +502,7 @@ RunScenario (
     mAllocation.pcrSelections[1].pcrSelect[0] = 0x7f;
   }
   mOutput.OutputString = OutputString;
+  mVarCount            = 0;
   mEndOfDxeSignaled               = FALSE;
   ZeroMem (&mBootServices, sizeof (mBootServices));
   ZeroMem (&mSystemTable, sizeof (mSystemTable));
@@ -581,6 +592,19 @@ AbsentTpm (
   assert_int_equal (SerialLines (), 1);
   mTpmAbsent = FALSE;
 }
+STATIC BOOLEAN
+Registered (
+  CONSOLE_TYPE Type,
+  VOID *Path
+  )
+{
+  for (UINTN Index = 0; Index < mVarCount; Index++) {
+    if ((mVarType[Index] == Type) && (mVarPath[Index] == Path)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
 STATIC VOID
 PromptOnAllConsoles (
   VOID **State
@@ -589,9 +613,15 @@ PromptOnAllConsoles (
   mNeedConfirm = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  // EndOfDxe registers the USB controllers; serial, GOP and USB then join
-  // before PP and the lock, and the deferred-image dispatch follows the lock.
-  assert_string_equal (mTrace, "ESGKPHU");
+  // EndOfDxe registers the USB controllers; the built-in paths are written
+  // before ConPlatform sees serial, GOP and USB join, all before PP and the
+  // lock; the deferred-image dispatch follows the lock.
+  assert_string_equal (mTrace, "EVVVVVVSGKPHU");
+  assert_true (Registered (ConIn, &mUsbKeyboard));
+  assert_true (Registered (ConIn, &mSerialConsole));
+  assert_true (Registered (ConOut, &mSerialConsole));
+  assert_true (Registered (ErrOut, &mSerialConsole));
+  assert_true (Registered (ConOut, &mGopPath));
   mNeedConfirm = FALSE;
 }
 STATIC VOID
@@ -603,13 +633,13 @@ PromptWithoutSerialTerminal (
   mConsoleStatus = EFI_NOT_FOUND;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_string_equal (mTrace, "EGKPHU");
+  assert_string_equal (mTrace, "EVVVVVVGKPHU");
   mConsoleStatus    = EFI_SUCCESS;
   // A partial match must not start TerminalDxe on another serial device.
   mWrongConsolePath = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_string_equal (mTrace, "EGKPHU");
+  assert_string_equal (mTrace, "EVVVVVVGKPHU");
   mWrongConsolePath = FALSE;
   mNeedConfirm      = FALSE;
 }

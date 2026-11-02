@@ -887,9 +887,9 @@ PlatformTpmCapOrStop (
   dispatch DXE drivers on a stalled connection.
 
   ConPlatformDxe admits a connected device only if it matches ConIn or
-  ConOut. BeforeConsole adds these built-in paths on every boot, so they are
-  present for any later request. Editing the variables from the OS can hide a
-  local console, which leaves the request unconfirmed, but cannot add a
+  ConOut, so the built-in paths are registered first; the variables saved by
+  the previous boot may lack them. Editing the variables from the OS can hide
+  a local console, which leaves the request unconfirmed, but cannot add a
   console that this function did not connect.
 **/
 STATIC
@@ -905,6 +905,12 @@ PlatformConnectLocalConsoles (
   PlatformSignalEndOfDxe ();
 
   CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
+  EfiBootManagerUpdateConsoleVariable (ConIn, (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard, NULL);
+  EfiBootManagerUpdateConsoleVariable (ConIn, (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole, NULL);
+  EfiBootManagerUpdateConsoleVariable (ConOut, (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole, NULL);
+  EfiBootManagerUpdateConsoleVariable (ErrOut, (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole, NULL);
+  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, NULL, AddOutput);
+
   Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
   Status    = gBS->LocateDevicePath (&gEfiSerialIoProtocolGuid, &Remaining, &Serial);
   if (!EFI_ERROR (Status) && (Remaining == &mSerialConsole.TermType.Header)) {
