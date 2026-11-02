@@ -146,6 +146,8 @@ VOID TestFini (VOID) {
   if (mShm != NULL) { FreePool (mShm); }
   mShm = NULL;
   mInitialized = mBroken = FALSE;
+  ZeroMem (&mDiagnostics, sizeof (mDiagnostics));
+  mCalls = mLastCallRpcs = 0;
   assert (HostLivePoolAllocations () == mInitialPools);
   TestResetServices ();
 }

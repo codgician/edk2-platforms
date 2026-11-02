@@ -271,6 +271,11 @@ int main (int Argc, char **Argv) {
     mMutation = 9;
     assert (TEEC_OpenSession (&Ctx, &Session, &Uuid, TEEC_LOGIN_PUBLIC, NULL, NULL, NULL) == TEEC_ERROR_COMMUNICATION);
     TestExpectCheck ("rejected open cleanup");
+    // The cleanup call, not the open, abandoned the secure thread.
+    OPTEE_CLIENT_DIAGNOSTICS Diag;
+    OpteeClientGetDiagnostics (&Diag);
+    assert (Diag.Broken && Diag.BrokenCall == 4 && Diag.BrokenRpcs == 0);
+    assert (strcmp (Diag.FirstCheck, "response attribute") == 0 && Diag.Rejects == 3);
     assert (Session.ctx == NULL && Session.session_id == 0);
     assert (mSmcCalls == 4);
   } else if (strcmp (Argv[1], "partial") == 0) {
@@ -292,6 +297,11 @@ int main (int Argc, char **Argv) {
     assert (OpteeCallWithArg (Arg) == TEEC_ERROR_COMMUNICATION);
     TestExpectDiagnostic ("RPC loop bound", OPTEE_RPC_MAX_CALLS, TEEC_ERROR_COMMUNICATION);
     assert (mSmcCalls == OPTEE_RPC_MAX_CALLS + 1);
+    OPTEE_CLIENT_DIAGNOSTICS Diag;
+    OpteeClientGetDiagnostics (&Diag);
+    assert (Diag.Broken && Diag.BrokenCall == 1 && Diag.BrokenRpcs == OPTEE_RPC_MAX_CALLS);
+    assert (strcmp (Diag.FirstCheck, "RPC loop bound") == 0 && Diag.Rejects == 1);
+    assert (Diag.FirstValue == OPTEE_RPC_MAX_CALLS && Diag.FirstStatus == TEEC_ERROR_COMMUNICATION);
     assert (!OpteeShmIsOwned ((UINTN)TestPool + 4096, 0, OPTEE_SHM_RPC_ARG));
     assert (OpteeCallWithArg (Arg) == TEEC_ERROR_COMMUNICATION);
     assert (mSmcCalls == OPTEE_RPC_MAX_CALLS + 1);

@@ -75,6 +75,14 @@ int main (void) {
     TestFailAllocation (0);
     gST = NULL;
   }
+  {
+    // Later rejections count but never overwrite the first one.
+    OPTEE_CLIENT_DIAGNOSTICS Diag;
+    OpteeClientGetDiagnostics (&Diag);
+    assert (Diag.Rejects == 6 && !Diag.Broken);
+    assert (strcmp (Diag.FirstCheck, "REE-FS file missing") == 0);
+    assert (Diag.FirstValue == 0 && Diag.FirstStatus == TEEC_ERROR_ITEM_NOT_FOUND);
+  }
   TestFini ();
   return 0;
 }

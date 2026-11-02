@@ -7,6 +7,23 @@
 
 #include <Uefi.h>
 
+/** First-failure record kept in fixed module storage, never allocated. */
+typedef struct {
+  CONST CHAR8  *FirstCheck;  ///< Literal of the first OpteeReject, or NULL.
+  UINT64       FirstValue;
+  UINT64       FirstStatus;
+  UINT32       Rejects;      ///< OpteeReject calls, saturating.
+  BOOLEAN      Broken;       ///< A suspended secure thread was abandoned.
+  UINT32       BrokenCall;   ///< 1-based OP-TEE call ordinal that broke it.
+  UINT32       BrokenRpcs;   ///< RPCs serviced during that call.
+} OPTEE_CLIENT_DIAGNOSTICS;
+
+/** Copy the record; plain memory reads only, safe in EBS callbacks. */
+VOID
+OpteeClientGetDiagnostics (
+  OUT OPTEE_CLIENT_DIAGNOSTICS  *Diagnostics
+  );
+
 /** Permanently suppress console services before ExitBootServices cleanup. */
 VOID
 OpteeClientApiExitBootServices (

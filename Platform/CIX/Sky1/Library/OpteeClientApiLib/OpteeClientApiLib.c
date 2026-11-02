@@ -13,7 +13,18 @@
 #include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 
-STATIC BOOLEAN  mSerialOnly;
+STATIC BOOLEAN                   mSerialOnly;
+STATIC OPTEE_CLIENT_DIAGNOSTICS  mDiagnostics;
+STATIC UINT32                    mCalls;
+STATIC UINT32                    mLastCallRpcs;
+
+VOID
+OpteeClientGetDiagnostics (
+  OUT OPTEE_CLIENT_DIAGNOSTICS  *Diagnostics
+  )
+{
+  CopyMem (Diagnostics, &mDiagnostics, sizeof (*Diagnostics));
+}
 
 VOID
 OpteeClientApiExitBootServices (
@@ -34,6 +45,16 @@ OpteeReject (
   CHAR16  ConsoleLine[192];
   UINTN   Length;
   UINTN   Index;
+
+  if (mDiagnostics.Rejects == 0) {
+    mDiagnostics.FirstCheck  = Check;
+    mDiagnostics.FirstValue  = Value;
+    mDiagnostics.FirstStatus = Status;
+  }
+
+  if (mDiagnostics.Rejects != MAX_UINT32) {
+    mDiagnostics.Rejects++;
+  }
 
   Length = AsciiSPrint (Line, sizeof (Line),
                        "TPM OpteeClient: %a value=0x%lx (0x%lx)\r\n",
@@ -314,6 +335,23 @@ ReleaseRpcAllocations (
   }
 }
 
+/** A suspended secure thread cannot safely resume with recycled buffers. */
+STATIC
+VOID
+MarkBroken (
+  VOID
+  )
+{
+  if (!mBroken) {
+    mBroken                 = TRUE;
+    mDiagnostics.Broken     = TRUE;
+    mDiagnostics.BrokenCall = mCalls;
+    mDiagnostics.BrokenRpcs = mLastCallRpcs;
+  }
+
+  ReleaseRpcAllocations ();
+}
+
 TEEC_Result
 OpteeCallWithArg (
   IN OPTEE_MSG_ARG  *Arg
@@ -334,6 +372,7 @@ OpteeCallWithArg (
 
   Address   = (UINTN)Arg;
   mInCall   = TRUE;
+  mCalls++;
   Arg->Ret  = TEEC_ERROR_COMMUNICATION;
   ZeroMem (&Args, sizeof (Args));
   Args.Arg0 = OPTEE_SMC_CALL_WITH_ARG;
@@ -372,10 +411,9 @@ OpteeCallWithArg (
     break;
   }
 
+  mLastCallRpcs = (UINT32)Count;
   if (Result != TEEC_SUCCESS) {
-    // A suspended secure thread cannot safely resume with recycled buffers.
-    mBroken = TRUE;
-    ReleaseRpcAllocations ();
+    MarkBroken ();
   }
 
   mInCall = FALSE;
@@ -689,12 +727,10 @@ TEEC_OpenSession (
               (Arg->Session != OpenedSession) || (Arg->NumParams != 0))
           {
             OpteeReject ("rejected open cleanup", Arg->Ret, TEEC_ERROR_COMMUNICATION);
-            mBroken = TRUE;
-            ReleaseRpcAllocations ();
+            MarkBroken ();
           }
         } else {
-          mBroken = TRUE;
-          ReleaseRpcAllocations ();
+          MarkBroken ();
         }
       }
     }
