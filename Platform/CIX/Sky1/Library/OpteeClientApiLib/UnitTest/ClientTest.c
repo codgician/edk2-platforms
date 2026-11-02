@@ -145,13 +145,15 @@ STATIC VOID RpcConversation (ARM_SMC_ARGS *Args) {
     if (mRpcStep == 1) {
       mRpcArgument = (VOID *)(UINTN)(((UINT64)Args->Arg1 << 32) | (UINT32)Args->Arg2);
       assert (OpteeShmIsOwned ((UINTN)mRpcArgument, OPTEE_MSG_ARG_SIZE (1), OPTEE_SHM_RPC_ARG));
-      mRpcArgument->Cmd = OPTEE_RPC_CMD_SUSPEND;
+      mRpcArgument->Cmd = OPTEE_RPC_CMD_SHM_ALLOC;
       mRpcArgument->NumParams = 1;
       mRpcArgument->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-      mRpcArgument->Params[0].U.Value.A = 1;
+      mRpcArgument->Params[0].U.Value.B = 1;
+      mRpcArgument->Params[0].U.Value.C = 8;
       Args->Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_CMD;
     } else if (mRpcStep == 2) {
       assert (mRpcArgument->Ret == TEEC_SUCCESS);
+      assert (OpteeShmIsOwned (mRpcArgument->Params[0].U.Tmem.BufPtr, 1, OPTEE_SHM_RPC_APPL));
       Args->Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | OPTEE_SMC_RPC_FUNC_FREE;
     } else {
       assert (!OpteeShmIsOwned ((UINTN)mRpcArgument, 0, OPTEE_SHM_RPC_ARG));
@@ -285,7 +287,6 @@ int main (int Argc, char **Argv) {
     OPTEE_MSG_ARG *Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (0), 4096, OPTEE_SHM_CLIENT);
     assert (Arg != NULL); TestSmcHook = RpcConversation;
     assert (OpteeCallWithArg (Arg) == TEEC_SUCCESS && mRpcStep == 4);
-    assert (TestDelayCalls == 1 && TestDelayMicroseconds == 1000);
     OpteeShmFreeOwned (Arg, OPTEE_SHM_CLIENT);
   } else if (strcmp (Argv[1], "loop") == 0) {
     OPTEE_MSG_ARG *Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (0), 4096, OPTEE_SHM_CLIENT);

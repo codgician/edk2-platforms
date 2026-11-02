@@ -12,7 +12,7 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
   for (size_t Pos = 0; Pos + 5 <= Size && Pos < 1024; Pos += 5) {
     UINTN Slot = Data[Pos + 1] % 16;
     UINTN Length = ((UINTN)Data[Pos + 2] << 8) | Data[Pos + 3];
-    UINT32 Owner = OPTEE_SHM_CLIENT + Data[Pos + 4] % 5;
+    UINT32 Owner = OPTEE_SHM_CLIENT + Data[Pos + 4] % 3;
     UINT8 *P = Pointers[Slot];
     switch (Data[Pos] % 5) {
       case 0:
@@ -36,7 +36,7 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
       case 1:
         if (P != NULL) {
           assert (!OpteeShmFreeOwned (P + 1, Owners[Slot]));
-          assert (!OpteeShmFreeOwned (P, Owners[Slot] == 5 ? 1 : Owners[Slot] + 1));
+          assert (!OpteeShmFreeOwned (P, Owners[Slot] == OPTEE_SHM_RPC_APPL ? OPTEE_SHM_CLIENT : Owners[Slot] + 1));
           for (UINTN I = 0; I < Sizes[Slot]; I++) { assert (P[I] == Slot + 1); }
           assert (OpteeShmFreeOwned (P, Owners[Slot]));
           for (UINTN I = 0; I < MAX (1, (Sizes[Slot] + 4095) / 4096) * 4096; I++) { assert (P[I] == 0); }

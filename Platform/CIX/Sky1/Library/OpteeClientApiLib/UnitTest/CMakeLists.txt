@@ -6,7 +6,7 @@ function(optee_host_options NAME)
   target_compile_options(${NAME} PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/TestConfig.h")
   target_link_options(${NAME} PRIVATE
     -Wl,--wrap=AllocatePool -Wl,--wrap=AllocateZeroPool
-    -Wl,--wrap=ReallocatePool -Wl,--wrap=FreePool -Wl,--wrap=MicroSecondDelay)
+    -Wl,--wrap=ReallocatePool -Wl,--wrap=FreePool)
 endfunction()
 sky1_host_test(optee_client SOURCES ClientTest.c ${OPTEE_SOURCES})
 optee_host_options(optee_client)

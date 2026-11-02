@@ -9,17 +9,6 @@
 #include "TestSupport.h"
 
 STATIC EFI_STATUS
-FuzzTime (EFI_TIME *Time)
-{
-  ZeroMem (Time, sizeof (*Time));
-  Time->Year = 2026;
-  Time->Month = 1;
-  Time->Day = 1;
-  Time->TimeZone = EFI_UNSPECIFIED_TIMEZONE;
-  return EFI_SUCCESS;
-}
-
-STATIC EFI_STATUS
 FuzzFv (CONST EFI_GUID *Guid, VOID **Image, UINTN *Size)
 {
   (VOID)Guid; (VOID)Image; (VOID)Size;
@@ -39,7 +28,6 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   UINT8 *Client;
   UINT8 *Payload;
   UINTN Index;
-  UINTN TimeCalls;
   UINTN FvCalls;
   OPTEE_MSG_PARAM *Param;
   VOID *Allocated;
@@ -51,7 +39,6 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   }
 
   TestInit ();
-  TestGetTimeHook = FuzzTime;
   TestFvHook = FuzzFv;
   Length = sizeof (OPTEE_MSG_ARG) + Data[0] % (OPTEE_RPC_MAX_PARAMS * sizeof (OPTEE_MSG_PARAM) + 1);
   Owner = (Data[1] & 1) ? OPTEE_SHM_RPC_ARG : OPTEE_SHM_CLIENT;
@@ -98,19 +85,19 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   Args.Arg3 = 0x12345678;
   Args.Arg6 = 0xabcdef;
   Args.Arg7 = 0x987654;
-  TimeCalls = TestTimeCalls;
   FvCalls = TestFvCalls;
   Safe = OpteeRpcHandle (&Args);
   assert (Args.Arg3 == 0x12345678 && Args.Arg6 == 0xabcdef && Args.Arg7 == 0x987654);
   if ((Data[1] & 7) != 1 || Header.NumParams > OPTEE_RPC_MAX_PARAMS ||
       OPTEE_MSG_ARG_SIZE (Header.NumParams) > Length) {
     assert (!Safe);
-    assert (TestTimeCalls == TimeCalls && TestFvCalls == FvCalls);
+    assert (TestFvCalls == FvCalls);
   } else {
     assert (Safe);
     assert (Arg->NumParams == Header.NumParams);
     assert (Arg->Cmd == Header.Cmd);
-    if (Header.Cmd > OPTEE_RPC_CMD_SHM_FREE || Header.Cmd == 1) {
+    if ((Header.Cmd != OPTEE_RPC_CMD_LOAD_TA) && (Header.Cmd != OPTEE_RPC_CMD_FS) &&
+        ((Header.Cmd < OPTEE_RPC_CMD_SHM_ALLOC) || (Header.Cmd > OPTEE_RPC_CMD_SHM_FREE))) {
       assert (Arg->Ret == TEEC_ERROR_NOT_SUPPORTED);
     }
   }
@@ -132,7 +119,6 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   Arg->Cmd = OPTEE_RPC_CMD_SHM_ALLOC;
   Arg->NumParams = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = Data[0] % 3;
   Arg->Params[0].U.Value.B = Data[1] + 1;
   Arg->Params[0].U.Value.C = 8;
   Address = (UINTN)Arg;
@@ -142,14 +128,14 @@ LLVMFuzzerTestOneInput (const uint8_t *Data, size_t Size)
   assert (OpteeRpcHandle (&Args));
   assert (Arg->Ret == TEEC_SUCCESS);
   Allocated = (VOID *)(UINTN)Arg->Params[0].U.Tmem.BufPtr;
-  Owner = OPTEE_SHM_RPC_APPL + Data[0] % 3;
+  Owner = OPTEE_SHM_RPC_APPL;
   assert (OpteeShmIsOwned ((UINTN)Allocated, Data[1] + 1, Owner));
   for (Index = 0; Index < Data[1] + 1U; Index++) {
     assert (((UINT8 *)Allocated)[Index] == 0);
   }
   Arg->Cmd = OPTEE_RPC_CMD_SHM_FREE;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = Data[0] % 3;
+  Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.B = (UINTN)Allocated;
   assert (OpteeRpcHandle (&Args) && Arg->Ret == TEEC_SUCCESS);
   assert (!OpteeShmIsOwned ((UINTN)Allocated, 0, Owner));

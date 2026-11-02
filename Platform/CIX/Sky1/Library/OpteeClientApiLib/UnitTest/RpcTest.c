@@ -44,39 +44,10 @@ Dispatch (OPTEE_MSG_ARG *Arg)
 }
 
 STATIC EFI_STATUS
-GoodTime (EFI_TIME *Time)
-{
-  ZeroMem (Time, sizeof (*Time));
-  Time->Year = 2026;
-  Time->Month = 1;
-  Time->Day = 1;
-  Time->TimeZone = EFI_UNSPECIFIED_TIMEZONE;
-  return EFI_SUCCESS;
-}
-
-STATIC EFI_STATUS
 MissingImage (CONST EFI_GUID *Guid, VOID **Image, UINTN *Size)
 {
   (VOID)Guid; (VOID)Image; (VOID)Size;
   return EFI_NOT_FOUND;
-}
-
-STATIC VOID
-WrongDirectionTime (VOID **State)
-{
-  OPTEE_MSG_ARG *Arg;
-  (VOID)State;
-  TestInit ();
-  TestGetTimeHook = GoodTime;
-  Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (1));
-  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Dispatch (Arg);
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC time framing", OPTEE_MSG_ATTR_TYPE_VALUE_INPUT, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestTimeCalls, 0);
-  TestFini ();
 }
 
 STATIC VOID
@@ -99,38 +70,19 @@ DeniedTa (VOID **State)
 }
 
 STATIC VOID
-OversizedSuspend (VOID **State)
-{
-  OPTEE_MSG_ARG *Arg;
-  (VOID)State;
-  TestInit ();
-  Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (1));
-  Arg->Cmd = OPTEE_RPC_CMD_SUSPEND;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = 101;
-  Dispatch (Arg);
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC suspend", 101, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestDelayCalls, 0);
-  TestFini ();
-}
-
-STATIC VOID
 TruncatedArgument (VOID **State)
 {
   OPTEE_MSG_ARG *Arg;
   (VOID)State;
   TestInit ();
-  TestGetTimeHook = GoodTime;
   Arg = RpcArgument (sizeof (*Arg));
-  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
+  Arg->Cmd = OPTEE_RPC_CMD_LOAD_TA;
   Arg->NumParams = 1;
   /* Baseline rounds to pages; this write stays in its page but not its request. */
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert_false (Dispatch (Arg));
   TestExpectDiagnostic ("RPC argument size", OPTEE_MSG_ARG_SIZE (1), TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestTimeCalls, 0);
+  assert_int_equal (TestFvCalls, 0);
   TestFini ();
 }
 
@@ -140,16 +92,15 @@ NonOwningArgument (VOID **State)
   OPTEE_MSG_ARG *Arg;
   (VOID)State;
   TestInit ();
-  TestGetTimeHook = GoodTime;
   Arg = OpteeShmAllocOwned (OPTEE_MSG_ARG_SIZE (1), 8, OPTEE_SHM_CLIENT);
   assert_non_null (Arg);
   ZeroMem (Arg, OPTEE_MSG_ARG_SIZE (1));
-  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
+  Arg->Cmd = OPTEE_RPC_CMD_LOAD_TA;
   Arg->NumParams = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
   assert_false (Dispatch (Arg));
   TestExpectDiagnostic ("RPC argument ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestTimeCalls, 0);
+  assert_int_equal (TestFvCalls, 0);
   TestFini ();
 }
 
@@ -262,61 +213,8 @@ AllowedTaAndSnapshot (VOID **State)
   TestFini ();
 }
 
-STATIC EFI_STATUS
-MutatingTime (EFI_TIME *Time)
-{
-  mShared->NumParams = MAX_UINT32;
-  mShared->Cmd = OPTEE_RPC_CMD_LOAD_TA;
-  mShared->Params[0].Attr = MAX_UINT64;
-  return GoodTime (Time);
-}
-
-STATIC EFI_STATUS
-BadTime (EFI_TIME *Time)
-{
-  GoodTime (Time);
-  Time->Month = 2;
-  Time->Day = 30;
-  return EFI_SUCCESS;
-}
-
 STATIC VOID
-TimeSnapshotAndValidation (VOID **State)
-{
-  OPTEE_MSG_ARG *Arg;
-  UINTN Index;
-  (VOID)State;
-  TestInit ();
-  Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (1) + 32);
-  SetMem ((UINT8 *)Arg + OPTEE_MSG_ARG_SIZE (1), 32, 0x6d);
-  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
-  TestGetTimeHook = MutatingTime;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-  assert_int_equal (Arg->NumParams, 1);
-  assert_int_equal (Arg->Cmd, OPTEE_RPC_CMD_GET_TIME);
-  assert_int_equal (Arg->Params[0].Attr, OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT);
-  assert_int_equal (Arg->Params[0].U.Value.A, 1767225600);
-  assert_int_equal (Arg->Params[0].U.Value.B, 0);
-  for (Index = 0; Index < 32; Index++) {
-    assert_int_equal (((UINT8 *)Arg)[OPTEE_MSG_ARG_SIZE (1) + Index], 0x6d);
-  }
-  TestGetTimeHook = BadTime;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_GENERIC);
-  TestExpectDiagnostic ("RPC command", OPTEE_RPC_CMD_GET_TIME, TEEC_ERROR_GENERIC);
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT | BIT8;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC time framing", OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT | BIT8, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestTimeCalls, 2);
-  TestFini ();
-}
-
-STATIC VOID
-CountsUnknownAndNotifications (VOID **State)
+CountsAndUnknown (VOID **State)
 {
   OPTEE_MSG_ARG *Arg;
   ARM_SMC_ARGS Args = { 0 };
@@ -338,26 +236,12 @@ CountsUnknownAndNotifications (VOID **State)
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_NOT_SUPPORTED);
   TestExpectDiagnostic ("RPC command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
-  Arg->Cmd = OPTEE_RPC_CMD_NOTIFICATION;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = 0;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_NOT_SUPPORTED);
-  TestExpectDiagnostic ("RPC notification", 0, TEEC_ERROR_NOT_SUPPORTED);
-  Arg->Params[0].U.Value.A = 1;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-  Arg->Params[0].U.Value.A = 2;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC notification", 2, TEEC_ERROR_BAD_PARAMETERS);
   Args.Arg0 = OPTEE_SMC_RETURN_RPC_PREFIX | 0x1234;
   Args.Arg3 = 0xabc;
   assert_false (OpteeRpcHandle (&Args));
   TestExpectDiagnostic ("RPC function", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
   assert_int_equal (Args.Arg3, 0xabc);
-  assert_int_equal (TestTimeCalls + TestFvCalls + TestDelayCalls, 0);
+  assert_int_equal (TestFvCalls, 0);
   TestFini ();
 }
 
@@ -366,45 +250,39 @@ PayloadOwnership (VOID **State)
 {
   OPTEE_MSG_ARG *Arg;
   VOID *Payload;
-  UINTN Type;
-  UINT32 Owners[] = { OPTEE_SHM_RPC_APPL, OPTEE_SHM_RPC_KERNEL, OPTEE_SHM_RPC_GLOBAL };
   (VOID)State;
   TestInit ();
   Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (1));
-  for (Type = 0; Type < 3; Type++) {
-    ZeroMem (Arg, OPTEE_MSG_ARG_SIZE (1));
-    Arg->Cmd = OPTEE_RPC_CMD_SHM_ALLOC;
-    Arg->NumParams = 1;
-    Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-    Arg->Params[0].U.Value.A = Type;
-    Arg->Params[0].U.Value.B = 32;
-    Arg->Params[0].U.Value.C = 8;
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-    Payload = (VOID *)(UINTN)Arg->Params[0].U.Tmem.BufPtr;
-    assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, Owners[Type]));
-    assert_int_equal (Arg->Params[0].Attr, OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT);
-    Arg->Cmd = OPTEE_RPC_CMD_SHM_FREE;
-    Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-    Arg->Params[0].U.Value.A = (Type + 1) % 3;
-    Arg->Params[0].U.Value.B = (UINTN)Payload;
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
-    assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, Owners[Type]));
-    Arg->Params[0].U.Value.A = Type;
-    Arg->Params[0].U.Value.B++;
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload + 1, TEEC_ERROR_BAD_PARAMETERS);
-    Arg->Params[0].U.Value.B--;
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-    assert_false (OpteeShmIsOwned ((UINTN)Payload, 0, Owners[Type]));
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-    TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
-  }
+  Arg->Cmd = OPTEE_RPC_CMD_SHM_ALLOC;
+  Arg->NumParams = 1;
+  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
+  Arg->Params[0].U.Value.B = 32;
+  Arg->Params[0].U.Value.C = 8;
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_SUCCESS);
+  Payload = (VOID *)(UINTN)Arg->Params[0].U.Tmem.BufPtr;
+  assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, OPTEE_SHM_RPC_APPL));
+  assert_int_equal (Arg->Params[0].Attr, OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT);
+  Arg->Cmd = OPTEE_RPC_CMD_SHM_FREE;
+  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
+  Arg->Params[0].U.Value.A = 1;
+  Arg->Params[0].U.Value.B = (UINTN)Payload;
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM ownership", 1, TEEC_ERROR_BAD_PARAMETERS);
+  assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, OPTEE_SHM_RPC_APPL));
+  Arg->Params[0].U.Value.A = 0;
+  Arg->Params[0].U.Value.B++;
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload + 1, TEEC_ERROR_BAD_PARAMETERS);
+  Arg->Params[0].U.Value.B--;
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_SUCCESS);
+  assert_false (OpteeShmIsOwned ((UINTN)Payload, 0, OPTEE_SHM_RPC_APPL));
+  assert_true (Dispatch (Arg));
+  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM ownership", (UINTN)Payload, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Cmd = OPTEE_RPC_CMD_SHM_FREE;
   Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.B = (UINTN)Arg;
@@ -521,54 +399,6 @@ SmcAllocationAndFree (VOID **State)
   TestFini ();
 }
 
-STATIC VOID
-SuspendBounds (VOID **State)
-{
-  OPTEE_MSG_ARG *Arg;
-  (VOID)State;
-  TestInit ();
-  Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (1));
-  Arg->Cmd = OPTEE_RPC_CMD_SUSPEND;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = 100;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-  assert_int_equal (TestDelayCalls, 1);
-  assert_int_equal (TestDelayMicroseconds, 100000);
-  Arg->Params[0].U.Value.A = MAX_UINT64;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC suspend", MAX_UINT64, TEEC_ERROR_BAD_PARAMETERS);
-  Arg->Params[0].U.Value.A = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC suspend", OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestDelayCalls, 1);
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = 100;
-  for (UINTN Index = 1; Index < 10; Index++) {
-    assert_true (Dispatch (Arg));
-    assert_int_equal (Arg->Ret, TEEC_SUCCESS);
-  }
-  assert_int_equal (TestDelayCalls, 10);
-  assert_int_equal (TestDelayMicroseconds, 1000000);
-  Arg->Params[0].U.Value.A = 1;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC suspend", 1, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestDelayCalls, 10);
-  TestFini ();
-}
-
-STATIC EFI_STATUS
-FailedTime (EFI_TIME *Time)
-{
-  (VOID)Time;
-  return EFI_DEVICE_ERROR;
-}
-
 STATIC EFI_STATUS
 NoMemoryImage (CONST EFI_GUID *Guid, VOID **Image, UINTN *Size)
 {
@@ -588,16 +418,8 @@ ShortHeadersAndServiceErrors (VOID **State)
   Arg = RpcArgument (sizeof (*Arg) - 1);
   assert_false (Dispatch (Arg));
   TestExpectDiagnostic ("RPC argument ownership", (UINTN)Arg, TEEC_ERROR_BAD_PARAMETERS);
-  assert_int_equal (TestTimeCalls + TestFvCalls + TestDelayCalls, 0);
+  assert_int_equal (TestFvCalls, 0);
   Arg = RpcArgument (OPTEE_MSG_ARG_SIZE (2));
-  Arg->Cmd = OPTEE_RPC_CMD_GET_TIME;
-  Arg->NumParams = 1;
-  Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT;
-  TestGetTimeHook = FailedTime;
-  assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_GENERIC);
-  TestExpectDiagnostic ("RPC command", OPTEE_RPC_CMD_GET_TIME, TEEC_ERROR_GENERIC);
-  assert_int_equal (TestTimeCalls, 1);
   SetLoad (Arg, NULL, 0);
   TestFvHook = NoMemoryImage;
   TestFailAllocation (1);
@@ -612,19 +434,15 @@ ShortHeadersAndServiceErrors (VOID **State)
 int main (void)
 {
   const struct CMUnitTest Tests[] = {
-    cmocka_unit_test (WrongDirectionTime),
     cmocka_unit_test (DeniedTa),
-    cmocka_unit_test (OversizedSuspend),
     cmocka_unit_test (TruncatedArgument),
     cmocka_unit_test (NonOwningArgument),
     cmocka_unit_test (AllowedTaAndSnapshot),
-    cmocka_unit_test (TimeSnapshotAndValidation),
-    cmocka_unit_test (CountsUnknownAndNotifications),
+    cmocka_unit_test (CountsAndUnknown),
     cmocka_unit_test (PayloadOwnership),
     cmocka_unit_test (RejectArgumentAndClientMemrefs),
     cmocka_unit_test (SmcAllocationAndFree),
-    cmocka_unit_test (ShortHeadersAndServiceErrors),
-    cmocka_unit_test (SuspendBounds)
+    cmocka_unit_test (ShortHeadersAndServiceErrors)
   };
   return cmocka_run_group_tests (Tests, NULL, NULL);
 }

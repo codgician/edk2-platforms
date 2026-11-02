@@ -38,8 +38,6 @@
   PrintLib
   SerialPortLib
   UefiBootServicesTableLib
-  TimerLib
-  UefiRuntimeServicesTableLib
 
 [FixedPcd]
   gCixPlatformTokenSpaceGuid.PcdTrustZoneSharedMemoryBase

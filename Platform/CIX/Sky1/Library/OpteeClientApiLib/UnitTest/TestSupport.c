@@ -5,7 +5,6 @@
 #include <Library/ArmMmuLib.h>
 #include <Pi/PiFirmwareFile.h>
 #include <Library/DxeServicesLib.h>
-#include <Library/UefiRuntimeServicesTableLib.h>
 #include "TestSupport.h"
 // Production never finalizes; one unit lets TestFini reset its private state.
 #include "../OpteeClientApiLib.c"
@@ -62,13 +61,9 @@ UINTN TestCapabilityFlags;
 UINTN TestConfigStatus;
 UINTN TestMapCalls;
 EFI_STATUS TestMapStatus;
-UINTN TestDelayCalls;
-UINTN TestDelayMicroseconds;
-UINTN TestTimeCalls;
 UINTN TestFvCalls;
 VOID (*TestSmcHook)(ARM_SMC_ARGS *Args);
 VOID (*TestFreeHook)(VOID *Buffer);
-EFI_STATUS (*TestGetTimeHook)(EFI_TIME *Time);
 EFI_STATUS (*TestFvHook)(CONST EFI_GUID *Guid, VOID **Image, UINTN *Size);
 STATIC UINTN mFailAllocation;
 STATIC INTN mInitialPools;
@@ -128,19 +123,6 @@ EFI_STATUS EFIAPI GetSectionFromAnyFv (CONST EFI_GUID *Guid, EFI_SECTION_TYPE Ty
   TestFvCalls++;
   return TestFvHook (Guid, Image, Size);
 }
-STATIC EFI_STATUS EFIAPI GetTime (EFI_TIME *Time, EFI_TIME_CAPABILITIES *Caps) {
-  assert (Caps == NULL && TestGetTimeHook != NULL);
-  TestTimeCalls++;
-  return TestGetTimeHook (Time);
-}
-STATIC EFI_RUNTIME_SERVICES mRuntime = { .GetTime = GetTime };
-EFI_RUNTIME_SERVICES *gRT = &mRuntime;
-UINTN EFIAPI __wrap_MicroSecondDelay (UINTN Microseconds) {
-  TestDelayCalls++;
-  TestDelayMicroseconds += Microseconds;
-  assert (Microseconds <= 100000);
-  return Microseconds;
-}
 // BaseLib architecture helpers do not execute privileged instructions here.
 UINT16 EFIAPI SwapBytes16 (UINT16 V) { return __builtin_bswap16 (V); }
 UINT32 EFIAPI SwapBytes32 (UINT32 V) { return __builtin_bswap32 (V); }
@@ -156,11 +138,10 @@ VOID TestResetServices (VOID) {
   TestCapabilityStatus = OPTEE_SMC_RETURN_OK;
   TestCapabilityFlags = OPTEE_SMC_SEC_CAP_HAVE_RESERVED_SHM;
   TestConfigStatus = OPTEE_SMC_RETURN_OK;
-  TestMapCalls = TestDelayCalls = TestDelayMicroseconds = TestTimeCalls = TestFvCalls = 0;
+  TestMapCalls = TestFvCalls = 0;
   TestMapStatus = EFI_SUCCESS;
   TestSmcHook = NULL;
   TestFreeHook = NULL;
-  TestGetTimeHook = NULL;
   TestFvHook = NULL;
   TestFailAllocation (0);
   TestClearDiagnostics ();

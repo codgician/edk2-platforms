@@ -12,8 +12,6 @@
 #include <Library/DebugLib.h>
 #include <Library/DxeServicesLib.h>
 #include <Library/MemoryAllocationLib.h>
-#include <Library/TimerLib.h>
-#include <Library/UefiRuntimeServicesTableLib.h>
 
 #include "OpteeClientInternal.h"
 
@@ -79,104 +77,13 @@ RpcLoadTa (
 }
 
 STATIC
-UINT64
-DaysFromCivil (
-  IN UINT64  Year,
-  IN UINT64  Month,
-  IN UINT64  Day
-  )
-{
-  UINT64  Era;
-  UINT64  YearOfEra;
-  UINT64  DayOfYear;
-  UINT64  DayOfEra;
-
-  Year     -= (Month <= 2) ? 1 : 0;
-  Era       = Year / 400;
-  YearOfEra = Year - Era * 400;
-  DayOfYear = (153 * (Month + ((Month > 2) ? -3 : 9)) + 2) / 5 + Day - 1;
-  DayOfEra  = YearOfEra * 365 + YearOfEra / 4 - YearOfEra / 100 + DayOfYear;
-  return Era * 146097 + DayOfEra - 719468;
-}
-
-/**
-  [out] value[0].a  seconds since the Epoch
-  [out] value[0].b  nanoseconds
-**/
-STATIC
-TEEC_Result
-RpcGetTime (
-  IN OUT OPTEE_MSG_ARG  *Arg
-  )
-{
-  EFI_TIME  Time;
-  UINTN     MonthDays;
-  STATIC CONST UINT8  DaysPerMonth[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-
-  if ((Arg->NumParams != 1) ||
-      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT)) {
-    return TEEC_ERROR_BAD_PARAMETERS;
-  }
-
-  if (EFI_ERROR (gRT->GetTime (&Time, NULL))) {
-    return TEEC_ERROR_GENERIC;
-  }
-  // Reject invalid civil fields before doing unsigned epoch arithmetic.
-  if ((Time.Year < 1970) || (Time.Year > 9999) ||
-      (Time.Month < 1) || (Time.Month > 12) ||
-      (Time.Day < 1) || (Time.Day > 31) ||
-      (Time.Hour > 23) || (Time.Minute > 59) || (Time.Second > 59) ||
-      (Time.Nanosecond > 999999999) ||
-      ((Time.TimeZone != EFI_UNSPECIFIED_TIMEZONE) &&
-       ((Time.TimeZone < -1440) || (Time.TimeZone > 1440))))
-  {
-    return TEEC_ERROR_GENERIC;
-  }
-
-  MonthDays = DaysPerMonth[Time.Month - 1];
-  if ((Time.Month == 2) && ((Time.Year % 4) == 0) &&
-      (((Time.Year % 100) != 0) || ((Time.Year % 400) == 0)))
-  {
-    MonthDays++;
-  }
-
-  if (Time.Day > MonthDays) {
-    return TEEC_ERROR_GENERIC;
-  }
-
-  Arg->Params[0].U.Value.A = DaysFromCivil (Time.Year, Time.Month, Time.Day) * 86400 +
-                             Time.Hour * 3600 + Time.Minute * 60 + Time.Second;
-  if (Time.TimeZone != EFI_UNSPECIFIED_TIMEZONE) {
-    INT64  Seconds;
-
-    Seconds = (INT64)Arg->Params[0].U.Value.A + (INT64)Time.TimeZone * 60;
-    if (Seconds < 0) {
-      return TEEC_ERROR_GENERIC;
-    }
-
-    Arg->Params[0].U.Value.A = (UINT64)Seconds;
-  }
-
-  Arg->Params[0].U.Value.B = Time.Nanosecond;
-  return TEEC_SUCCESS;
-}
-
-STATIC
 UINT32
 RpcPayloadOwner (
   IN UINT64  Type
   )
 {
-  switch (Type) {
-    case 0:
-      return OPTEE_SHM_RPC_APPL;
-    case 1:
-      return OPTEE_SHM_RPC_KERNEL;
-    case 2:
-      return OPTEE_SHM_RPC_GLOBAL;
-    default:
-      return 0;
-  }
+  // Kernel and global payloads only serve requests this platform never makes.
+  return (Type == 0) ? OPTEE_SHM_RPC_APPL : 0;
 }
 
 /**
@@ -262,37 +169,6 @@ RpcCmd (
       Result = OpteeReeFsHandle (Arg);
       break;
 
-    case OPTEE_RPC_CMD_GET_TIME:
-      Result = RpcGetTime (Arg);
-      break;
-
-    case OPTEE_RPC_CMD_NOTIFICATION:
-      if ((Arg->NumParams != 1) ||
-          (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT))
-      {
-        Result = TEEC_ERROR_BAD_PARAMETERS;
-      } else if (Arg->Params[0].U.Value.A == 1) {
-        // SEND has no waiter to wake in this single-threaded client.
-        Result = TEEC_SUCCESS;
-      } else if (Arg->Params[0].U.Value.A == 0) {
-        Result = TEEC_ERROR_NOT_SUPPORTED;
-      } else {
-        Result = TEEC_ERROR_BAD_PARAMETERS;
-      }
-      break;
-
-    case OPTEE_RPC_CMD_SUSPEND:
-      if ((Arg->NumParams == 1) &&
-          (Arg->Params[0].Attr == OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) &&
-          OpteeRpcDelay (Arg->Params[0].U.Value.A))
-      {
-        Result = TEEC_SUCCESS;
-      } else {
-        Result = TEEC_ERROR_BAD_PARAMETERS;
-      }
-
-      break;
-
     case OPTEE_RPC_CMD_SHM_ALLOC:
       Result = RpcShmAlloc (Arg);
       break;
@@ -313,18 +189,12 @@ RpcCmd (
         !((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) &&
           ((Result == TEEC_ERROR_ITEM_NOT_FOUND) || (Result == TEEC_ERROR_SHORT_BUFFER))))
     {
-      if (Arg->Cmd == OPTEE_RPC_CMD_SUSPEND) {
-        OpteeReject ("RPC suspend", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : Arg->Params[0].U.Value.A), Result);
-      } else if (Arg->Cmd == OPTEE_RPC_CMD_SHM_ALLOC) {
+      if (Arg->Cmd == OPTEE_RPC_CMD_SHM_ALLOC) {
         OpteeReject ("RPC SHM allocation", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : ((Arg->Params[0].U.Value.B > MAX_UINTN) ? Arg->Params[0].U.Value.B : ((Result == TEEC_ERROR_BAD_PARAMETERS) ? Arg->Params[0].U.Value.C : Arg->Params[0].U.Value.B)))), Result);
       } else if (Arg->Cmd == OPTEE_RPC_CMD_SHM_FREE) {
         OpteeReject ("RPC SHM ownership", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : Arg->Params[0].U.Value.B)), Result);
       } else if ((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) && (Arg->NumParams == 2)) {
         OpteeReject ("TA framing", (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((Arg->Params[1].Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) ? Arg->Params[1].Attr : OpteeMsgParamRejectValue (&Arg->Params[1])), Result);
-      } else if ((Arg->Cmd == OPTEE_RPC_CMD_NOTIFICATION) && (Arg->NumParams == 1)) {
-        OpteeReject ("RPC notification", (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : Arg->Params[0].U.Value.A, Result);
-      } else if ((Arg->Cmd == OPTEE_RPC_CMD_GET_TIME) && (Result == TEEC_ERROR_BAD_PARAMETERS) && (Arg->NumParams == 1)) {
-        OpteeReject ("RPC time framing", Arg->Params[0].Attr, Result);
       } else if (Result == TEEC_ERROR_BAD_PARAMETERS) {
         OpteeReject ("RPC framing", Arg->NumParams, Result);
       } else {

@@ -8,7 +8,6 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/OpteeClientApiLib.h>
 #include <Library/PcdLib.h>
-#include <Library/TimerLib.h>
 #include "OpteeClientInternal.h"
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
@@ -65,7 +64,6 @@ STATIC BOOLEAN     mInCall;
 STATIC UINT64      mShmBase;
 STATIC UINTN       mShmPages;
 STATIC SHM_RECORD  *mShm;
-STATIC UINT64      mDelayMs;
 
 /** Find an exact live allocation base, not an interior page. */
 STATIC
@@ -192,7 +190,7 @@ OpteeShmAllocOwned (
   UINT64  Address;
 
   if (!mInitialized || mBroken || (Owner < OPTEE_SHM_CLIENT) ||
-      (Owner > OPTEE_SHM_RPC_GLOBAL) ||
+      (Owner > OPTEE_SHM_RPC_APPL) ||
       (Size > mShmPages * SHM_PAGE_SIZE) ||
       (Alignment == 0) || ((Alignment & (Alignment - 1)) != 0) ||
       (Alignment > mShmPages * SHM_PAGE_SIZE))
@@ -291,8 +289,8 @@ OpteeMsgParamToBuffer (
     }
   } else {
     Record = ShmRecord (Param->U.Tmem.ShmRef);
-    if ((Record == NULL) || (Record->Owner < OPTEE_SHM_RPC_APPL) ||
-        (Record->Owner > OPTEE_SHM_RPC_GLOBAL) || (Address < Param->U.Tmem.ShmRef))
+    if ((Record == NULL) || (Record->Owner != OPTEE_SHM_RPC_APPL) ||
+        (Address < Param->U.Tmem.ShmRef))
     {
       return FALSE;
     }
@@ -320,9 +318,7 @@ OpteeMsgParamRejectValue (
   }
 
   Record = ShmRecord (Param->U.Tmem.ShmRef);
-  if ((Record == NULL) || (Record->Owner < OPTEE_SHM_RPC_APPL) ||
-      (Record->Owner > OPTEE_SHM_RPC_GLOBAL))
-  {
+  if ((Record == NULL) || (Record->Owner != OPTEE_SHM_RPC_APPL)) {
     return Param->U.Tmem.ShmRef;
   }
 
@@ -350,21 +346,6 @@ ReleaseRpcAllocations (
   }
 }
 
-BOOLEAN
-OpteeRpcDelay (
-  IN UINT64  Milliseconds
-  )
-{
-  if ((Milliseconds > 100) || (Milliseconds > 1000 - mDelayMs)) {
-    // The RPC dispatcher reports this rejection once, including the delay.
-    return FALSE;
-  }
-
-  mDelayMs += Milliseconds;
-  MicroSecondDelay ((UINTN)Milliseconds * 1000);
-  return TRUE;
-}
-
 TEEC_Result
 OpteeCallWithArg (
   IN OPTEE_MSG_ARG  *Arg
@@ -385,7 +366,6 @@ OpteeCallWithArg (
 
   Address   = (UINTN)Arg;
   mInCall   = TRUE;
-  mDelayMs  = 0;
   Arg->Ret  = TEEC_ERROR_COMMUNICATION;
   ZeroMem (&Args, sizeof (Args));
   Args.Arg0 = OPTEE_SMC_CALL_WITH_ARG;

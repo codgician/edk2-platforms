@@ -61,9 +61,6 @@
 
 #define OPTEE_RPC_CMD_LOAD_TA       0
 #define OPTEE_RPC_CMD_FS            2
-#define OPTEE_RPC_CMD_GET_TIME      3
-#define OPTEE_RPC_CMD_NOTIFICATION  4
-#define OPTEE_RPC_CMD_SUSPEND       5
 #define OPTEE_RPC_CMD_SHM_ALLOC     6
 #define OPTEE_RPC_CMD_SHM_FREE      7
 
@@ -115,8 +112,6 @@ typedef struct {
 #define OPTEE_SHM_CLIENT      1
 #define OPTEE_SHM_RPC_ARG     2
 #define OPTEE_SHM_RPC_APPL    3
-#define OPTEE_SHM_RPC_KERNEL  4
-#define OPTEE_SHM_RPC_GLOBAL  5
 
 /**
   Allocate zeroed, page-backed static SHM with private ownership metadata.
@@ -160,17 +155,6 @@ OpteeShmIsOwned (
   IN UINT64  Address,
   IN UINT64  Size,
   IN UINT32  Owner
-  );
-
-/**
-  Delay at most 100ms per RPC and 1000ms per standard call.
-
-  @param[in] Milliseconds  Untrusted delay request.
-  @retval FALSE  Budget exceeded; no delay was performed.
-**/
-BOOLEAN
-OpteeRpcDelay (
-  IN UINT64  Milliseconds
   );
 
 //

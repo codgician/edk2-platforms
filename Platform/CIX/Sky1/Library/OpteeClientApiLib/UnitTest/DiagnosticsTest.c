@@ -50,12 +50,7 @@ int main (void) {
   Arg->Cmd = 0x1234;
   assert (Dispatch (Arg));
   TestExpectDiagnostic ("RPC command", 0x1234, TEEC_ERROR_NOT_SUPPORTED);
-  Arg->Cmd = OPTEE_RPC_CMD_SUSPEND;
-  Arg->NumParams = 1;
   Arg->Params[0].Attr = OPTEE_MSG_ATTR_TYPE_VALUE_INPUT;
-  Arg->Params[0].U.Value.A = 101;
-  assert (Dispatch (Arg));
-  TestExpectDiagnostic ("RPC suspend", 101, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Cmd = OPTEE_RPC_CMD_LOAD_TA;
   Arg->NumParams = 2;
   ZeroMem (&Arg->Params[0].U.Value, sizeof (Arg->Params[0].U.Value));
