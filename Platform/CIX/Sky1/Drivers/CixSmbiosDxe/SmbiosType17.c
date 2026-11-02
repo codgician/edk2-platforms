@@ -82,6 +82,11 @@ AddSmbiosType17 (
   mCixDefaultType17.Base.Attributes                 = MemoryInfo->RanksPerChannel;
   mCixDefaultType17.Base.ConfiguredMemoryClockSpeed = MemoryInfo->MaxFreq*2;
   mCixDefaultType17.Base.MemoryTechnology           = 0x03;
+  //
+  // SMBIOS 3.2+: every device is plain DRAM, so all of it is volatile.
+  //
+  mCixDefaultType17.Base.MemoryOperatingModeCapability.Bits.VolatileMemory = 1;
+  mCixDefaultType17.Base.VolatileSize                                       = (UINT64)(MemoryInfo->TotalSize / MemoryDevNum) * SIZE_1MB;
 
   for (i = 0; i < MemoryDevNum; i++) {
     mCixDefaultType17.Base.BankLocator = 2+i;
