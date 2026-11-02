@@ -11,8 +11,6 @@
 #include <Library/Tpm2CommandLib.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiLib.h>
-#include <Protocol/LoadedImage.h>
-#include <Protocol/DevicePath.h>
 #include <Library/SerialPortLib.h>
 
 #include "../FTPMDxe.c"
@@ -21,27 +19,15 @@ EFI_GUID                     gOpteeFtpmTaGuid;
 EFI_GUID                     gCixFtpmInitProtocolGuid = CIX_FTPM_INIT_PROTOCOL_GUID;
 EFI_GUID                     gEfiEventBeforeExitBootServicesGuid;
 EFI_GUID                     gEfiEventExitBootServicesGuid;
-EFI_GUID                     gEfiLoadedImageProtocolGuid;
-EFI_GUID                     gEfiLoadedImageDevicePathProtocolGuid;
-EFI_GUID                     gEfiDevicePathProtocolGuid;
 STATIC EFI_SYSTEM_TABLE      mSystemTable;
 EFI_SYSTEM_TABLE             *gST = &mSystemTable;
 STATIC EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL mConOut;
-STATIC EFI_LOADED_IMAGE_PROTOCOL mParentImage;
-STATIC EFI_LOADED_IMAGE_PROTOCOL mChildImage;
-STATIC EFI_DEVICE_PATH_PROTOCOL mImagePath = { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { 4, 0 } };
-STATIC BOOLEAN               mInsideChild;
-STATIC BOOLEAN               mEbsResident;
-STATIC BOOLEAN               mReadyResident;
 STATIC EFI_EVENT_NOTIFY      mReadyCallback;
 CHAR8                        TestSerial[4096];
 UINTN                        TestConsoleWrites;
 EFI_STATUS                   TestClientResult;
 TEEC_Result                  TestContextResult;
 EFI_STATUS                   TestReadyEventResult;
-EFI_STATUS                   TestLoadResult;
-EFI_STATUS                   TestStartResult;
-UINTN                        TestResidentImages;
 UINTN                        TestClosedEvents;
 UINTN                        TestContextFinalizes;
 UINTN                        TestCapExtends;
@@ -95,7 +81,6 @@ UINTN                    TestSavedCommandSize;
 UINTN                    TestSavedResponseSize;
 STATIC EFI_EVENT_NOTIFY  mEbsCallback;
 STATIC EFI_EVENT_NOTIFY  mBeforeEbsCallback;
-STATIC BOOLEAN           mBeforeEbsResident;
 STATIC BOOLEAN           mBeforeEbsSignaled;
 
 VOID
@@ -176,7 +161,6 @@ MockCreateEventEx (
   TestEventCalls++;
   Status = ((TestEventFailCall == 0) || (TestEventFailCall == TestEventCalls)) ? TestEventResult : EFI_SUCCESS;
   if (Group == &gEfiEventBeforeExitBootServicesGuid) {
-    mBeforeEbsResident = mInsideChild;
     if (!EFI_ERROR (Status)) {
       mBeforeEbsCallback = Notify;
       *Event             = (EFI_EVENT)(UINTN)3;
@@ -185,7 +169,6 @@ MockCreateEventEx (
     return Status;
   }
 
-  mEbsResident = mInsideChild;
   if (!EFI_ERROR (Status)) {
     mEbsCallback = Notify;
     *Event       = (EFI_EVENT)(UINTN)1;
@@ -198,16 +181,9 @@ MockCloseEvent (
   EFI_EVENT  Event
   )
 {
-  TestRequire (!TestAtEbs);
+  TestRequire (!TestAtEbs && (UINTN)Event == 3);
   TestClosedEvents++;
-  if ((UINTN)Event == 1) {
-    mEbsCallback = NULL;
-  } else if ((UINTN)Event == 3) {
-    mBeforeEbsCallback = NULL;
-  } else {
-    TestRequire ((UINTN)Event == 2);
-    mReadyCallback = NULL;
-  }
+  mBeforeEbsCallback = NULL;
   return EFI_SUCCESS;
 }
 
@@ -243,7 +219,6 @@ EfiCreateEventReadyToBootEx (
   TestRequire (!TestAtEbs && Tpl == TPL_CALLBACK);
   if (!EFI_ERROR (TestReadyEventResult)) {
     mReadyCallback = Notify;
-    mReadyResident = mInsideChild;
     *Event = (EFI_EVENT)(UINTN)2;
   }
   return TestReadyEventResult;
@@ -403,7 +378,7 @@ TEEC_InvokeCommand (
       0xd8, 0x8d, 0x20, 0x3d, 0x15, 0xaa, 0xa4, 0x50
     };
     UINT32 Code = SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 6)));
-    TestRequire (!TestAtEbs && mInsideChild && TestProtocol == NULL);
+    TestRequire (!TestAtEbs && TestProtocol == NULL);
     TestRequire (FtpmResidentReady ());
     TestRequire (TestSavedCommand == mCommandBuffer && TestSavedResponse == mResponseBuffer);
     TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
@@ -541,66 +516,6 @@ TestPrivateReady (VOID)
 }
 
 
-UINTN EFIAPI
-GetDevicePathSize (CONST EFI_DEVICE_PATH_PROTOCOL *Path)
-{
-  TestRequire (Path == &mImagePath);
-  return sizeof (mImagePath);
-}
-
-STATIC EFI_STATUS EFIAPI
-MockHandleProtocol (EFI_HANDLE Handle, EFI_GUID *Guid, VOID **Interface)
-{
-  TestRequire (!TestAtEbs);
-  TestRequire ((UINTN)Handle == 10 || (UINTN)Handle == 11);
-  if (Guid == &gEfiLoadedImageProtocolGuid) {
-    *Interface = (UINTN)Handle == 10 ? &mParentImage : &mChildImage;
-  } else {
-    TestRequire (Guid == &gEfiLoadedImageDevicePathProtocolGuid);
-    *Interface = &mImagePath;
-  }
-  return EFI_SUCCESS;
-}
-
-STATIC EFI_STATUS EFIAPI
-MockLoadImage (BOOLEAN Policy, EFI_HANDLE Parent, EFI_DEVICE_PATH_PROTOCOL *Path,
-               VOID *Buffer, UINTN Size, EFI_HANDLE *Handle)
-{
-  TestRequire (!TestAtEbs && !mInsideChild && !Policy);
-  TestRequire ((UINTN)Parent == 10 && Path == &mImagePath && Buffer == NULL && Size == 0);
-  if (!EFI_ERROR (TestLoadResult)) {
-    *Handle = (EFI_HANDLE)(UINTN)11;
-  }
-  return TestLoadResult;
-}
-
-STATIC EFI_STATUS EFIAPI
-MockStartImage (EFI_HANDLE Handle, UINTN *Size, CHAR16 **Data)
-{
-  EFI_STATUS Status;
-  TestRequire (!TestAtEbs && !mInsideChild && (UINTN)Handle == 11);
-  if (EFI_ERROR (TestStartResult)) {
-    memset (&mChildImage, 0, sizeof (mChildImage));
-    return TestStartResult;
-  }
-  mInsideChild = TRUE;
-  Status = FtpmDxeEntryPoint (Handle, &mSystemTable);
-  mInsideChild = FALSE;
-  if (!EFI_ERROR (Status)) {
-    TestResidentImages++;
-  } else {
-    TestRequire (mEbsCallback == NULL && mReadyCallback == NULL && mBeforeEbsCallback == NULL);
-  }
-  return Status;
-}
-
-STATIC EFI_STATUS EFIAPI
-MockUnloadImage (EFI_HANDLE Handle)
-{
-  TestRequire (!TestAtEbs && (UINTN)Handle == 11);
-  return TestResidentImages != 0 && mChildImage.Unload == NULL ? EFI_UNSUPPORTED : EFI_SUCCESS;
-}
-
 STATIC EFI_STATUS EFIAPI
 MockOutputString (EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, CHAR16 *Text)
 {
@@ -635,27 +550,6 @@ OpteeClientApiExitBootServices (VOID)
   // DXE Core signals BeforeExitBootServices before it accepts the map key.
   TestRequire (!TestAtEbs);
   TestSerialOnly = TRUE;
-}
-
-BOOLEAN
-TestCallbacksResident (VOID)
-{
-  return TestResidentImages == 1 && (mEbsCallback == NULL || mEbsResident) &&
-         (mBeforeEbsCallback == NULL || mBeforeEbsResident) &&
-         (mReadyCallback == NULL || mReadyResident);
-}
-
-BOOLEAN
-TestHandshakeCleared (VOID)
-{
-  return mChildImage.LoadOptions == NULL && mChildImage.LoadOptionsSize == 0 &&
-         mParentImage.LoadOptions == NULL && mParentImage.LoadOptionsSize == 0;
-}
-
-EFI_STATUS
-TestUnloadResident (VOID)
-{
-  return MockUnloadImage ((EFI_HANDLE)(UINTN)11);
 }
 
 VOID
@@ -716,21 +610,12 @@ TestReset (
   mBootServices.CloseEvent                        = MockCloseEvent;
   mBootServices.InstallMultipleProtocolInterfaces = MockInstall;
   mRuntimeServices.SetVariable                    = MockSetVariable;
-  memset (&mParentImage, 0, sizeof (mParentImage));
-  memset (&mChildImage, 0, sizeof (mChildImage));
-  mParentImage.FilePath = &mImagePath;
-  mChildImage.FilePath = &mImagePath;
-  mChildImage.ParentHandle = (EFI_HANDLE)(UINTN)10;
-  mInsideChild = FALSE;
   mReadyCallback = NULL;
   TestSerial[0] = 0;
   TestConsoleWrites = 0;
   TestClientResult = EFI_SUCCESS;
   TestContextResult = TEEC_SUCCESS;
   TestReadyEventResult = EFI_SUCCESS;
-  TestLoadResult = EFI_SUCCESS;
-  TestStartResult = EFI_SUCCESS;
-  TestResidentImages = 0;
   TestClosedEvents = 0;
   TestContextFinalizes = 0;
   TestCapExtends = 0;
@@ -739,10 +624,6 @@ TestReset (
   TestCapMalformedFrame = FALSE;
   TestCapFailPcr = 0;
   mExpectCapTerminal = FALSE;
-  mBootServices.HandleProtocol = MockHandleProtocol;
-  mBootServices.LoadImage = MockLoadImage;
-  mBootServices.StartImage = MockStartImage;
-  mBootServices.UnloadImage = MockUnloadImage;
   mConOut.OutputString = MockOutputString;
   mSystemTable.ConOut = &mConOut;
 }

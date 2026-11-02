@@ -29,7 +29,6 @@
   BaseLib
   BaseMemoryLib
   DebugLib
-  DevicePathLib
   OpteeClientApiLib
   PrintLib
   SerialPortLib
@@ -47,8 +46,6 @@
 
 [Protocols]
   gCixFtpmInitProtocolGuid         ## PRODUCES
-  gEfiLoadedImageProtocolGuid           ## CONSUMES
-  gEfiLoadedImageDevicePathProtocolGuid ## CONSUMES
 
 [Depex]
   # Diagnostics use the variable service only before ExitBootServices.

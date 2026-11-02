@@ -19,7 +19,6 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/OpteeClientApiLib.h>
-#include <Library/DevicePathLib.h>
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -27,7 +26,6 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/tee_client_api.h>
 #include <Protocol/FTPMInitProtocol.h>
-#include <Protocol/LoadedImage.h>
 #include "../../Library/OpteeClientApiLib/OpteeClientDiagnostics.h"
 #include <Library/Tpm2CommandLib.h>
 #include "../../Library/PlatformBootManagerLib/TpmBootCap.h"
@@ -426,10 +424,16 @@ OnReadyToBoot (
   PublishStatus ();
 }
 
-STATIC
+/**
+  Fails only before any callback or OP-TEE resource exists. Afterwards it
+  returns success even if publication fails: DXE Core unloads a driver only
+  on an entry-point error, and the EBS callbacks and session must remain.
+**/
 EFI_STATUS
-StartResidentDriver (
-  IN EFI_HANDLE  ImageHandle
+EFIAPI
+FtpmDxeEntryPoint (
+  IN EFI_HANDLE        ImageHandle,
+  IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
   EFI_STATUS   Status;
@@ -482,13 +486,12 @@ StartResidentDriver (
   PublishStatus ();
 
   // Diagnostics may be refreshed at ReadyToBoot, never at EBS.
-  Event  = NULL;
   Status = EfiCreateEventReadyToBootEx (TPL_CALLBACK, OnReadyToBoot, NULL, &Event);
   if (EFI_ERROR (Status)) {
     ReportDecision ("ReadyToBoot diagnostics skipped", Status, FALSE, FALSE);
   }
 
-  // Publish unavailable status for consumers whose DXE depex uses the vendor
+  // Publish unavailable status for consumers whose DXE depex uses
   // FTpmDeviceLib. BDS uses OptionalFtpmDeviceLib and must not wait for this
   // protocol: publication itself can fail after a live TPM was detected.
   Handle = NULL;
@@ -511,140 +514,13 @@ StartResidentDriver (
 
       ReportDecision ("PCRs 0-7 capped, continuing without TPM protocol", EFI_SUCCESS, FALSE, FALSE);
     }
-    // The resident image owns the live session, client records and EBS code.
-    // Do not finalize: an unconfirmed close/cache drain cannot release SHM.
+    // Keep the live session, client records and EBS code resident. Do not
+    // finalize: an unconfirmed close/cache drain cannot release SHM.
     mSessionUsable  = FALSE;
     mClientReady    = FALSE;
     mHandoffStarted = TRUE;
-    if (Event != NULL) {
-      gBS->CloseEvent (Event);
-    }
-
     ReportDecision ("protocol installation failed, TPM unavailable", Status, FALSE, FALSE);
   }
 
-  return Status;
-}
-
-typedef struct {
-  EFI_HANDLE  Parent;
-  EFI_HANDLE  Child;
-  EFI_STATUS  Status;
-  BOOLEAN     Completed;
-} FTPM_RESIDENT_START;
-
-/**
-  Start a separate resident copy before creating callbacks or owning SHM.
-
-  DXE Core's CoreStartImage (Image.c) marks the image started before entry
-  and unloads drivers only on an entry error (lines 1703-1704, 1790-1791).
-  CoreUnloadImage rejects a started driver with NULL Unload (1935-1942).
-  The outer image therefore owns no client resources. Its child always
-  returns success and retains callbacks/SHM even if publication failed;
-  only the synchronous private handshake returns that error to dispatch.
-**/
-EFI_STATUS
-EFIAPI
-FtpmDxeEntryPoint (
-  IN EFI_HANDLE        ImageHandle,
-  IN EFI_SYSTEM_TABLE  *SystemTable
-  )
-{
-  EFI_LOADED_IMAGE_PROTOCOL  *Image;
-  EFI_LOADED_IMAGE_PROTOCOL  *Parent;
-  EFI_LOADED_IMAGE_PROTOCOL  *Child;
-  EFI_DEVICE_PATH_PROTOCOL   *Path;
-  EFI_DEVICE_PATH_PROTOCOL   *ParentPath;
-  FTPM_RESIDENT_START         Start;
-  FTPM_RESIDENT_START         *Request;
-  EFI_HANDLE                 ChildHandle;
-  EFI_STATUS                 Status;
-  VOID                       *SavedOptions;
-  UINT32                     SavedOptionsSize;
-  UINTN                      PathSize;
-
-  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Image);
-  if (EFI_ERROR (Status)) {
-    ReportDecision ("image identity unavailable, TPM skipped", Status, FALSE, FALSE);
-    return Status;
-  }
-
-  Status = gBS->HandleProtocol (ImageHandle, &gEfiLoadedImageDevicePathProtocolGuid, (VOID **)&Path);
-  if (EFI_ERROR (Status)) {
-    ReportDecision ("image path unavailable, TPM skipped", Status, FALSE, FALSE);
-    return Status;
-  }
-
-  // A resident request must be shared with the actual same-path parent.
-  // An arbitrary LoadOptions flag alone must not select the resident branch.
-  if ((Image->LoadOptionsSize == sizeof (Start)) && (Image->LoadOptions != NULL) &&
-      (Image->ParentHandle != NULL) &&
-      !EFI_ERROR (gBS->HandleProtocol (Image->ParentHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Parent)) &&
-      (Parent->LoadOptions == Image->LoadOptions) &&
-      (Parent->LoadOptionsSize == sizeof (Start)) &&
-      !EFI_ERROR (gBS->HandleProtocol (Image->ParentHandle, &gEfiLoadedImageDevicePathProtocolGuid, (VOID **)&ParentPath)))
-  {
-    PathSize = GetDevicePathSize (Path);
-    if ((PathSize == GetDevicePathSize (ParentPath)) &&
-        (CompareMem (Path, ParentPath, PathSize) == 0))
-    {
-      Request = Image->LoadOptions;
-      if ((Request->Parent == Image->ParentHandle) && (Request->Child == ImageHandle) && !Request->Completed) {
-        Image->LoadOptions = NULL;
-        Image->LoadOptionsSize = 0;
-        Image->Unload = NULL;
-        Request->Status = StartResidentDriver (ImageHandle);
-        Request->Completed = TRUE;
-        return EFI_SUCCESS;
-      }
-    }
-  }
-
-  Status = gBS->LoadImage (FALSE, ImageHandle, Path, NULL, 0, &ChildHandle);
-  if (EFI_ERROR (Status)) {
-    ReportDecision ("resident image load failed, TPM skipped", Status, FALSE, FALSE);
-    return Status;
-  }
-
-  Status = gBS->HandleProtocol (ChildHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Child);
-  if (EFI_ERROR (Status)) {
-    gBS->UnloadImage (ChildHandle);
-    ReportDecision ("resident image identity unavailable, TPM skipped", Status, FALSE, FALSE);
-    return Status;
-  }
-
-  ZeroMem (&Start, sizeof (Start));
-  Start.Parent = ImageHandle;
-  Start.Child = ChildHandle;
-  Start.Status = EFI_DEVICE_ERROR;
-  SavedOptions = Image->LoadOptions;
-  SavedOptionsSize = Image->LoadOptionsSize;
-  Image->LoadOptions = &Start;
-  Image->LoadOptionsSize = sizeof (Start);
-  Child->LoadOptions = &Start;
-  Child->LoadOptionsSize = sizeof (Start);
-  Status = gBS->StartImage (ChildHandle, NULL, NULL);
-  Image->LoadOptions = SavedOptions;
-  Image->LoadOptionsSize = SavedOptionsSize;
-  // Entry-point errors unload the child, but pre-entry failures may not.
-  // Reacquire its protocol rather than touching a possibly freed pointer.
-  if (EFI_ERROR (Status)) {
-    if (!EFI_ERROR (gBS->HandleProtocol (ChildHandle, &gEfiLoadedImageProtocolGuid, (VOID **)&Child))) {
-      Child->LoadOptions = NULL;
-      Child->LoadOptionsSize = 0;
-      gBS->UnloadImage (ChildHandle);
-    }
-
-    ReportDecision ("resident image start failed, TPM skipped", Status, FALSE, FALSE);
-    return Status;
-  }
-
-  Child->LoadOptions = NULL;
-  Child->LoadOptionsSize = 0;
-  if (!Start.Completed) {
-    ReportDecision ("resident initialization unavailable, TPM skipped", EFI_DEVICE_ERROR, FALSE, FALSE);
-    return EFI_DEVICE_ERROR;
-  }
-
-  return Start.Status;
+  return EFI_SUCCESS;
 }

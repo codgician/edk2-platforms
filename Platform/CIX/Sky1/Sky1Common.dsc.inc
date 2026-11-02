@@ -1004,7 +1004,7 @@
   MdeModulePkg/Universal/BdsDxe/BdsDxe.inf {
     <LibraryClasses>
 !if $(FTPM_SUPPORT) == TRUE
-      # BDS must still run after the producer returns a publication error.
+      # BDS must still run when FTPMDxe fails to publish its protocol.
       Tpm2DeviceLib|Platform/CIX/Sky1/Drivers/FTPMDxe/ResidentTpm2DeviceLib/OptionalFtpmDeviceLib.inf
 !endif
     <PcdsFixedAtBuild>

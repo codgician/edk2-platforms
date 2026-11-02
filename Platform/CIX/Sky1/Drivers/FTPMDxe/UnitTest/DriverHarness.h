@@ -49,9 +49,6 @@ extern UINTN               TestConsoleWrites;
 extern EFI_STATUS          TestClientResult;
 extern TEEC_Result         TestContextResult;
 extern EFI_STATUS          TestReadyEventResult;
-extern EFI_STATUS          TestLoadResult;
-extern EFI_STATUS          TestStartResult;
-extern UINTN               TestResidentImages;
 extern UINTN               TestClosedEvents;
 extern UINTN               TestContextFinalizes;
 extern UINTN               TestCapExtends;
@@ -72,21 +69,6 @@ TestCapStoppedEntry (
 
 VOID
 TestWithoutConsole (
-  VOID
-  );
-
-BOOLEAN
-TestCallbacksResident (
-  VOID
-  );
-
-BOOLEAN
-TestHandshakeCleared (
-  VOID
-  );
-
-EFI_STATUS
-TestUnloadResident (
   VOID
   );
 

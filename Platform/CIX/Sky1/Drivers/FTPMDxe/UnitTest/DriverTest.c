@@ -315,16 +315,12 @@ InstallFailureCleanup (
 {
   TestReset ();
   TestInstallResult = EFI_OUT_OF_RESOURCES;
-  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_null (TestProtocol);
   assert_int_equal (TestCheckedCloses, 0);
   assert_true (TestSessionStillOpen ());
   assert_int_equal (TestFinalizes, 0);
   assert_int_equal (TestContextFinalizes, 0);
-  assert_int_equal (TestClosedEvents, 1);
-  assert_int_equal (TestResidentImages, 1);
-  assert_true (TestHandshakeCleared ());
-  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
   assert_int_equal (TestCapExtends, 8);
   assert_int_equal (TestInvocations, 9);
   assert_false (TestPrivateReady ());
@@ -341,17 +337,13 @@ InstallAndCloseFailureRetainsResident (
   TestReset ();
   TestInstallResult = EFI_OUT_OF_RESOURCES;
   TestCloseResult = TEEC_ERROR_COMMUNICATION;
-  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_false (TestHalted);
   assert_null (TestProtocol);
   assert_true (TestSessionStillOpen ());
   assert_int_equal (TestCheckedCloses, 0);
   assert_int_equal (TestFinalizes, 0);
   assert_int_equal (TestContextFinalizes, 0);
-  assert_int_equal (TestClosedEvents, 1);
-  assert_true (TestCallbacksResident ());
-  assert_true (TestHandshakeCleared ());
-  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
   assert_string_equal (TestSerial,
     TEST_INSTALL_CAP_OUT_OF_RESOURCES "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
   assert_int_equal (TestConsoleWrites, 3);
@@ -377,13 +369,10 @@ InstallAndFinalizeFailureRetainsResident (
   TestReset ();
   TestInstallResult = EFI_DEVICE_ERROR;
   TestFinalizeResult = FALSE;
-  assert_int_equal (TestStart (), EFI_DEVICE_ERROR);
+  assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_false (TestHalted);
   assert_true (TestSessionStillOpen ());
   assert_int_equal (TestFinalizes, 0);
-  assert_true (TestCallbacksResident ());
-  assert_true (TestHandshakeCleared ());
-  assert_int_equal (TestUnloadResident (), EFI_UNSUPPORTED);
   assert_string_equal (TestSerial,
     TEST_INSTALL_CAP_DEVICE_ERROR "TPM FTPMDxe: protocol installation failed, TPM unavailable (Device Error)\r\n");
   TestExitBootServices ();
@@ -403,7 +392,6 @@ InstallFailureNeverHalts (
   assert_true (TestSessionStillOpen ());
   assert_false (TestPrivateReady ());
   assert_int_equal (TestCheckedCloses, 0);
-  assert_true (TestCallbacksResident ());
 }
 
 STATIC void
@@ -468,40 +456,19 @@ InstallFailureAbsentTaSkipsCap (
   TestReset ();
   TestOpenResult = TEEC_ERROR_ITEM_NOT_FOUND;
   TestInstallResult = EFI_OUT_OF_RESOURCES;
-  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
+  assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_false (TestHalted);
   assert_null (TestProtocol);
   assert_false (TestSessionStillOpen ());
   assert_false (TestPrivateReady ());
   assert_int_equal (TestInvocations, 0);
   assert_int_equal (TestCapExtends, 0);
-  assert_true (TestCallbacksResident ());
   assert_string_equal (TestSerial,
     "TPM FTPMDxe: session open failed, TPM skipped (0xFFFF0008)\r\n"
     "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
   TestExitBootServices ();
   assert_int_equal (TestCheckedCloses, 0);
   assert_int_equal (TestFinalizes, 0);
-}
-
-STATIC void
-ResidentLoadFailures (
-  void  **State
-  )
-{
-  TestReset ();
-  TestLoadResult = EFI_OUT_OF_RESOURCES;
-  assert_int_equal (TestStart (), EFI_OUT_OF_RESOURCES);
-  assert_null (TestProtocol);
-  assert_int_equal (TestCheckedCloses, 0);
-  assert_string_equal (TestSerial, "TPM FTPMDxe: resident image load failed, TPM skipped (Out of Resources)\r\n");
-  TestReset ();
-  TestStartResult = EFI_DEVICE_ERROR;
-  assert_int_equal (TestStart (), EFI_DEVICE_ERROR);
-  assert_null (TestProtocol);
-  assert_int_equal (TestCheckedCloses, 0);
-  assert_true (TestHandshakeCleared ());
-  assert_string_equal (TestSerial, "TPM FTPMDxe: resident image start failed, TPM skipped (Device Error)\r\n");
 }
 
 STATIC void
@@ -572,8 +539,6 @@ InitializationDiagnostics (
   assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_true (TestProtocol->GetFTPMStatus (TestProtocol));
   assert_string_equal (TestSerial, "TPM FTPMDxe: ReadyToBoot diagnostics skipped (Out of Resources)\r\n");
-  assert_true (TestCallbacksResident ());
-  assert_true (TestHandshakeCleared ());
 }
 
 STATIC void
@@ -666,7 +631,6 @@ main (
     cmocka_unit_test_setup (InstallFailureCleanup,        Before),
     cmocka_unit_test_setup (InstallAndCloseFailureRetainsResident, Before),
     cmocka_unit_test_setup (InstallAndFinalizeFailureRetainsResident, Before),
-    cmocka_unit_test_setup (ResidentLoadFailures, Before),
     cmocka_unit_test_setup (InstallFailureCapDiscoveryStops, Before),
     cmocka_unit_test_setup (InstallFailureCapMalformedFrameStops, Before),
     cmocka_unit_test_setup (InstallFailureNeverHalts, Before),
