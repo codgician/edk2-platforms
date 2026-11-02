@@ -14,6 +14,7 @@
 **/
 
 #include <Library/AcpiLib.h>
+#include <Library/ArmLib.h>
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -28,7 +29,7 @@
 #include <Library/TableHelperLib.h>
 #include <Protocol/ConfigurationManagerProtocol.h>
 
-#include "PpttGenerator.h"
+#include "PpttTopology.h"
 
 /**
   This macro expands to a function that retrieves the Cpu
@@ -40,44 +41,53 @@ GET_OBJECT_LIST (
   CM_CIX_CPU_TOPO_INFO
   );
 
+#define CLIDR_CTYPE_MASK     0x1FFFFF
+#define CSSELR_LEVEL(Level)  (((Level) - 1) << 1)
+#define CSSELR_IND           BIT0
+
+/**
+  Check that the boot core reports the cache geometry the PPTT publishes.
+
+  The geometry in PpttTopology.c is that of Sky1. Reading the boot core's
+  CLIDR_EL1 and CCSIDR_EL1 keeps it from being published on a part whose
+  caches differ; such a part gets a PPTT without cache structures.
+
+  @retval TRUE   The boot core's caches match the published geometry.
+  @retval FALSE  Unknown core or different geometry.
+**/
 STATIC
-UINT32
-GetClusterValidCoreNum (
-  CIX_CLUSTER_TOPO  *ClusterTopoInfo
+BOOLEAN
+BootCoreMatchesCacheGeometry (
+  VOID
   )
 {
-  UINT32  CoreIndex;
-  UINT32  CoreCount = 0;
+  CONST SKY1_CORE_CACHES  *Caches;
+  BOOLEAN                 Ccidx;
+  UINT32                  SharedCsselr;
 
-  for (CoreIndex = 0; CoreIndex < ClusterTopoInfo->CoreNumber; CoreIndex++) {
-    if (ClusterTopoInfo->Core[CoreIndex].Enable) {
-      CoreCount++;
-    }
+  Caches = Sky1CoreCachesForMidr (ArmReadMidr ());
+  if (Caches == NULL) {
+    DEBUG ((DEBUG_ERROR, "PPTT: boot core MIDR 0x%lx is not a Sky1 core, caches not described\n", ArmReadMidr ()));
+    return FALSE;
   }
 
-  return CoreCount;
-}
-
-STATIC
-UINT32
-GetValidProcTopoNodeNum (
-  CM_CIX_CPU_TOPO_INFO  *CpuTopoInfo
-  )
-{
-  UINT32            ClusterIndex;
-  UINT32            ValidNodeCount = 1;  // Socket node
-  UINT32            CoreCount;
-  CIX_CLUSTER_TOPO  *ClusterTopo;
-
-  for (ClusterIndex = 0; ClusterIndex < CpuTopoInfo->ClusterNumber; ClusterIndex++) {
-    ClusterTopo = &CpuTopoInfo->ClusterTopo[ClusterIndex];
-    CoreCount   = GetClusterValidCoreNum (ClusterTopo);
-    if (CoreCount > 0) {
-      ValidNodeCount = ValidNodeCount + CoreCount + 1;      // include a valid cluster node
-    }
+  if ((ReadCLIDR () & CLIDR_CTYPE_MASK) != Caches->ClidrCtype) {
+    DEBUG ((DEBUG_ERROR, "PPTT: boot core CLIDR 0x%x unexpected, caches not described\n", ReadCLIDR ()));
+    return FALSE;
   }
 
-  return ValidNodeCount;
+  Ccidx        = ArmHasCcidx ();
+  SharedCsselr = (Caches->L2.Size != 0) ? CSSELR_LEVEL (3) : CSSELR_LEVEL (2);
+  if (!Sky1CcsidrMatches (ReadCCSIDR (CSSELR_LEVEL (1)), Ccidx, &Caches->L1) ||
+      !Sky1CcsidrMatches (ReadCCSIDR (CSSELR_LEVEL (1) | CSSELR_IND), Ccidx, &Caches->L1) ||
+      ((Caches->L2.Size != 0) && !Sky1CcsidrMatches (ReadCCSIDR (CSSELR_LEVEL (2)), Ccidx, &Caches->L2)) ||
+      !Sky1CcsidrMatches (ReadCCSIDR (SharedCsselr), Ccidx, &gSky1SharedCache))
+  {
+    DEBUG ((DEBUG_ERROR, "PPTT: boot core cache geometry unexpected, caches not described\n"));
+    return FALSE;
+  }
+
+  return TRUE;
 }
 
 /**
@@ -117,13 +127,7 @@ BuildPpttTable (
   UINT32                TableSize;
   CM_CIX_CPU_TOPO_INFO  *CpuTopoInfo;
   UINT32                CpuTopoInfoCount;
-  UINT32                ProcTopologyStructCount;
-  UINT32                ClusterIndex, CoreIndex;
-  UINT32                SocketOffset, ClusterOffset;
-  UINT32                ValidCoreCount;
-  UINT8                 *New;
-  CIX_CLUSTER_TOPO      *ClusterTopo;
-  CIX_CPU_CORE          *CpuCore;
+  BOOLEAN               DescribeCaches;
 
   EFI_ACPI_6_3_PROCESSOR_PROPERTIES_TOPOLOGY_TABLE_HEADER  *Pptt;
 
@@ -165,21 +169,9 @@ BuildPpttTable (
     goto error_handler;
   }
 
-  ProcTopologyStructCount = GetValidProcTopoNodeNum (CpuTopoInfo);
-
-  // Calculate the size of the PPTT table
-  TableSize  = sizeof (EFI_ACPI_6_3_PROCESSOR_PROPERTIES_TOPOLOGY_TABLE_HEADER);
-  TableSize += ProcTopologyStructCount*sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-  DEBUG (
-    (
-     DEBUG_INFO,
-     "INFO: PPTT:\n" \
-     " ProcTopologyStructCount = %d\n" \
-     " TableSize = %d\n",
-     ProcTopologyStructCount,
-     TableSize
-    )
-    );
+  DescribeCaches = BootCoreMatchesCacheGeometry ();
+  TableSize      = Sky1PpttSize (CpuTopoInfo, DescribeCaches);
+  DEBUG ((DEBUG_INFO, "INFO: PPTT: TableSize = %d, caches %a\n", TableSize, DescribeCaches ? "described" : "omitted"));
 
   // Allocate the Buffer for the PPTT table
   *Table = (EFI_ACPI_DESCRIPTION_HEADER *)AllocateZeroPool (TableSize);
@@ -198,17 +190,6 @@ BuildPpttTable (
   }
 
   Pptt = (EFI_ACPI_6_3_PROCESSOR_PROPERTIES_TOPOLOGY_TABLE_HEADER *)*Table;
-  New  = (UINT8 *)(UINTN)*Table;
-  New += sizeof (EFI_ACPI_DESCRIPTION_HEADER);
-
-  DEBUG (
-    (
-     DEBUG_INFO,
-     "PPTT: Pptt = 0x%p. TableSize = 0x%x\n",
-     Pptt,
-     TableSize
-    )
-    );
 
   // Add ACPI header
   Status = AddAcpiHeader (
@@ -229,77 +210,7 @@ BuildPpttTable (
     goto error_handler;
   }
 
-  EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR_FLAGS  SocketFlags = {
-    EFI_ACPI_6_3_PPTT_PACKAGE_PHYSICAL,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_ID_VALID,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_IS_NOT_THREAD,
-    EFI_ACPI_6_3_PPTT_NODE_IS_NOT_LEAF,
-    EFI_ACPI_6_3_PPTT_IMPLEMENTATION_NOT_IDENTICAL
-  };
-
-  EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR_FLAGS  ClusterFlags = {
-    EFI_ACPI_6_3_PPTT_PACKAGE_NOT_PHYSICAL,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_ID_VALID,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_IS_NOT_THREAD,
-    EFI_ACPI_6_3_PPTT_NODE_IS_NOT_LEAF,
-    EFI_ACPI_6_3_PPTT_IMPLEMENTATION_IDENTICAL
-  };
-
-  EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR_FLAGS  CoreFlags = {
-    EFI_ACPI_6_3_PPTT_PACKAGE_NOT_PHYSICAL,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_ID_VALID,
-    EFI_ACPI_6_3_PPTT_PROCESSOR_IS_NOT_THREAD,
-    EFI_ACPI_6_3_PPTT_NODE_IS_LEAF,
-    EFI_ACPI_6_3_PPTT_IMPLEMENTATION_IDENTICAL
-  };
-
-  // Add the Socket PPTT structure
-  EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR  Socket = ACPI_PROCESSOR_HIERARCHY_NODE_STRUCTURE_INIT (
-                                                    SocketFlags,
-                                                    0,
-                                                    0,
-                                                    0
-                                                    );
-
-  CopyMem (New, &Socket, sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR));
-  New          += sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-  SocketOffset  = sizeof (EFI_ACPI_DESCRIPTION_HEADER);
-  ClusterOffset = SocketOffset;
-  for (ClusterIndex = 0; ClusterIndex < CpuTopoInfo->ClusterNumber; ClusterIndex++) {
-    ClusterTopo    = &CpuTopoInfo->ClusterTopo[ClusterIndex];
-    ValidCoreCount = GetClusterValidCoreNum (ClusterTopo);
-    if (ValidCoreCount == 0) {
-      continue;
-    }
-
-    // Add the Cluster PPTT structure
-    EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR  Cluster = ACPI_PROCESSOR_HIERARCHY_NODE_STRUCTURE_INIT (
-                                                       ClusterFlags,
-                                                       SocketOffset,
-                                                       ClusterTopo->Uid,
-                                                       0
-                                                       );
-    CopyMem (New, &Cluster, sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR));
-    New           += sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-    ClusterOffset += sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-    for (CoreIndex = 0; CoreIndex < ClusterTopo->CoreNumber; CoreIndex++) {
-      CpuCore = &ClusterTopo->Core[CoreIndex];
-      if (!CpuCore->Enable) {
-        continue;
-      }
-
-      EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR  Core = ACPI_PROCESSOR_HIERARCHY_NODE_STRUCTURE_INIT (
-                                                      CoreFlags,
-                                                      ClusterOffset,
-                                                      CpuCore->Uid,
-                                                      0
-                                                      );
-      CopyMem (New, &Core, sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR));
-      New += sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-    }
-
-    ClusterOffset += ValidCoreCount*sizeof (EFI_ACPI_6_3_PPTT_STRUCTURE_PROCESSOR);
-  }
+  Sky1PpttWriteNodes (CpuTopoInfo, DescribeCaches, (UINT8 *)Pptt);
 
   return Status;
 

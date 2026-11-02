@@ -19,7 +19,8 @@
 
 [Sources]
   PpttGenerator.c
-  PpttGenerator.h
+  PpttTopology.c
+  PpttTopology.h
 
 [Packages]
   EmbeddedPkg/EmbeddedPkg.dec
@@ -30,5 +31,6 @@
   Silicon/CIX/Sky1/CixPkg.dec
 
 [LibraryClasses]
+  ArmLib
   BaseLib
   BaseMemoryLib
