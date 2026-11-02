@@ -39,6 +39,9 @@
   SerialPortLib
   UefiBootServicesTableLib
 
+[Guids]
+  gOpteeFtpmTaGuid
+
 [FixedPcd]
   gCixPlatformTokenSpaceGuid.PcdTrustZoneSharedMemoryBase
   gCixPlatformTokenSpaceGuid.PcdTrustZoneSharedMemorySize

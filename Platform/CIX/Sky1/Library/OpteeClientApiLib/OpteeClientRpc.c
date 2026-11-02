@@ -12,12 +12,9 @@
 #include <Library/DebugLib.h>
 #include <Library/DxeServicesLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/OpteeTrustedAppGuids.h>
 
 #include "OpteeClientInternal.h"
-
-STATIC CONST EFI_GUID  mFtpmTaGuid = {
-  0xbc50d971, 0xd4c9, 0x42c4, { 0x82, 0xcb, 0x34, 0x3f, 0xb7, 0xf3, 0x78, 0x96 }
-};
 
 /**
   [in]  value[0].a-b  TA UUID as octets
@@ -46,7 +43,7 @@ RpcLoadTa (
   }
 
   OpteeUuidFromOctets ((CONST UINT8 *)&Arg->Params[0].U.Value, &Uuid);
-  if (!CompareGuid (&Uuid, &mFtpmTaGuid)) {
+  if (!CompareGuid (&Uuid, &gOpteeFtpmTaGuid)) {
     OpteeReject ("TA admission", Uuid.Data1, TEEC_ERROR_ITEM_NOT_FOUND);
     return TEEC_ERROR_ITEM_NOT_FOUND;
   }

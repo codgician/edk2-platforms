@@ -29,6 +29,7 @@ UINTN EFIAPI StrnLenS (CONST CHAR16 *String, UINTN MaxSize) {
 UINTN TestDiagnosticCount;
 CHAR8 TestDiagnostic[512];
 EFI_SYSTEM_TABLE *gST;
+EFI_GUID gOpteeFtpmTaGuid = { 0xbc50d971, 0xd4c9, 0x42c4, { 0x82, 0xcb, 0x34, 0x3f, 0xb7, 0xf3, 0x78, 0x96 } };
 
 VOID TestClearDiagnostics (VOID) {
   TestDiagnosticCount = 0;
