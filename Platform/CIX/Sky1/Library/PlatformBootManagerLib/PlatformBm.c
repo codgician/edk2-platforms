@@ -814,6 +814,20 @@ RegisterIsoDebianBootOption (
 }
 
 STATIC BOOLEAN  mTpmBootGateComplete;
+STATIC BOOLEAN  mEndOfDxeSignaled;
+
+/** Signal EndOfDxe once per boot; its handlers assume a single notification. **/
+STATIC
+VOID
+PlatformSignalEndOfDxe (
+  VOID
+  )
+{
+  if (!mEndOfDxeSignaled) {
+    mEndOfDxeSignaled = TRUE;
+    EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+  }
+}
 
 /** Emit a RELEASE-visible, non-secret decision before changing boot policy. **/
 STATIC
@@ -871,13 +885,108 @@ PlatformTpmCapOrStop (
 }
 
 /**
+  Add the hardcoded short-form USB keyboard to ConIn, and the serial console
+  to ConIn, ConOut and ErrOut.
+**/
+STATIC
+VOID
+PlatformRegisterBuiltInConsoles (
+  VOID
+  )
+{
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdDefaultTerminalType) == 4,
+    "PcdDefaultTerminalType must be TTYTERM"
+    );
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdUartDefaultParity) != 0,
+    "PcdUartDefaultParity must be set to an actual value, not 'default'"
+    );
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdUartDefaultStopBits) != 0,
+    "PcdUartDefaultStopBits must be set to an actual value, not 'default'"
+    );
+
+  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
+
+  EfiBootManagerUpdateConsoleVariable (
+    ConIn,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ConIn,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ConOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ErrOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
+}
+
+/**
+  Join every built-in console to the console splitter, so that a pending
+  physical-presence prompt and its confirmation reach any local operator:
+  the SerialDxe terminal, the GOP, and keyboards on the SoC USB controllers.
+
+  The SoC USB host drivers register their controllers only from EndOfDxe
+  notifications, so EndOfDxe is signaled first. It notifies firmware-volume
+  drivers only: no third-party image has run, and deferred images, PCI
+  enumeration and option ROMs still wait until the hierarchy is locked. Boots
+  without a request that needs confirmation keep the stricter order and lock
+  the hierarchy before EndOfDxe. The PCI root bridges are not connected yet,
+  so every GOP present is built in. Do not use ConnectDevicePath: it can
+  dispatch DXE drivers on a stalled connection.
+
+  ConPlatformDxe admits a connected device only if it matches ConIn or
+  ConOut, so the built-in paths are registered first. Editing those variables
+  from the OS can hide a local console, which leaves the request unconfirmed,
+  but cannot add a console that this function did not connect.
+**/
+STATIC
+VOID
+PlatformConnectLocalConsoles (
+  VOID
+  )
+{
+  EFI_STATUS                Status;
+  EFI_DEVICE_PATH_PROTOCOL  *Remaining;
+  EFI_HANDLE                Serial;
+
+  PlatformSignalEndOfDxe ();
+  PlatformRegisterBuiltInConsoles ();
+  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, NULL, AddOutput);
+
+  Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
+  Status    = gBS->LocateDevicePath (&gEfiSerialIoProtocolGuid, &Remaining, &Serial);
+  if (!EFI_ERROR (Status) && (Remaining == &mSerialConsole.TermType.Header)) {
+    // Recursion also starts ConPlatform and ConSplitter on the terminal child.
+    // ConnectController reports EFI_NOT_FOUND if the terminal already runs.
+    Status = gBS->ConnectController (Serial, NULL, Remaining, TRUE);
+  }
+
+  DEBUG ((DEBUG_INFO, "TPM gate: serial console: %r\n", Status));
+
+  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, NULL, Connect);
+  // UsbBus connects every device, including keyboards behind hubs that
+  // enumerate while the prompt waits.
+  FilterAndProcess (&gEdkiiNonDiscoverableDeviceProtocolGuid, IsUsbHost, Connect);
+}
+
+/**
   Process physical presence and protect platform authorization before BDS can
   dispatch deferred images, PCI option ROMs or any load option.
 
-  Only the built-in SerialDxe path is connected here. In particular, do not use
-  the NVRAM console paths or ConnectDevicePath: the latter can dispatch DXE
-  drivers on a stalled connection. General USB/PCI/GOP discovery stays behind
-  the gate. A missing trusted console cannot authorize a pending PP request.
+  General PCI discovery stays behind the gate. A request that needs
+  confirmation is shown on every built-in console; see
+  PlatformConnectLocalConsoles.
 **/
 STATIC
 VOID
@@ -885,19 +994,9 @@ PlatformTpmBootGate (
   VOID
   )
 {
-  EFI_STATUS                       Status;
-  EFI_TCG2_PROTOCOL                *Tcg2;
+  EFI_STATUS                        Status;
+  EFI_TCG2_PROTOCOL                 *Tcg2;
   EFI_TCG2_BOOT_SERVICE_CAPABILITY  Capability;
-  EFI_DEVICE_PATH_PROTOCOL         *Remaining;
-  EFI_HANDLE                       Serial;
-  EFI_HANDLE                       InputHandle;
-  EFI_HANDLE                       OutputHandle;
-  EFI_HANDLE                       SavedInputHandle;
-  EFI_HANDLE                       SavedOutputHandle;
-  EFI_SIMPLE_TEXT_INPUT_PROTOCOL   *Input;
-  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *Output;
-  EFI_SIMPLE_TEXT_INPUT_PROTOCOL   *SavedInput;
-  EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL  *SavedOutput;
 
   if (mTpmBootGateComplete) {
     return;
@@ -932,64 +1031,11 @@ PlatformTpmBootGate (
     return;
   }
 
-  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
-  Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
-  Status = gBS->LocateDevicePath (&gEfiSerialIoProtocolGuid, &Remaining, &Serial);
-  if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.TermType.Header)) {
-    Status = EFI_NOT_FOUND;
+  if (Tcg2PhysicalPresenceLibNeedUserConfirm ()) {
+    PlatformConnectLocalConsoles ();
   }
 
-  if (!EFI_ERROR (Status)) {
-    Status = gBS->ConnectController (Serial, NULL, Remaining, FALSE);
-    // ConnectController returns NOT_FOUND when the terminal was already
-    // started. Exact terminal protocol resolution below is authoritative.
-    if (Status == EFI_NOT_FOUND) {
-      Status = EFI_SUCCESS;
-    }
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
-    Status = gBS->LocateDevicePath (&gEfiSimpleTextInProtocolGuid, &Remaining, &InputHandle);
-    if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.End)) {
-      Status = EFI_NOT_FOUND;
-    }
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Status = gBS->HandleProtocol (InputHandle, &gEfiSimpleTextInProtocolGuid, (VOID **)&Input);
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
-    Status = gBS->LocateDevicePath (&gEfiSimpleTextOutProtocolGuid, &Remaining, &OutputHandle);
-    if (!EFI_ERROR (Status) && (Remaining != &mSerialConsole.End)) {
-      Status = EFI_NOT_FOUND;
-    }
-  }
-
-  if (!EFI_ERROR (Status)) {
-    Status = gBS->HandleProtocol (OutputHandle, &gEfiSimpleTextOutProtocolGuid, (VOID **)&Output);
-  }
-
-  SavedInputHandle  = gST->ConsoleInHandle;
-  SavedOutputHandle = gST->ConsoleOutHandle;
-  SavedInput        = gST->ConIn;
-  SavedOutput       = gST->ConOut;
-  if (EFI_ERROR (Status)) {
-    // Leave requests pending: only a trusted console may confirm them.
-    PlatformTpmStatus ("PP skipped (no trusted console)", Status);
-  } else {
-    gST->ConsoleInHandle  = InputHandle;
-    gST->ConsoleOutHandle = OutputHandle;
-    gST->ConIn           = Input;
-    gST->ConOut          = Output;
-    gST->Hdr.CRC32       = 0;
-    gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
-
-    Tcg2PhysicalPresenceLibProcessRequest (NULL);
-    DEBUG ((DEBUG_INFO, "TPM gate: trusted PP complete\n"));
-  }
+  Tcg2PhysicalPresenceLibProcessRequest (NULL);
   Status = ConfigureTpmPlatformHierarchy ();
   if (EFI_ERROR (Status)) {
     PlatformTpmStatus ("hierarchy protection failed, trying disable", Status);
@@ -1007,12 +1053,6 @@ PlatformTpmBootGate (
     PlatformTpmStatus ("platform hierarchy protected", EFI_SUCCESS);
   }
 
-  gST->ConsoleInHandle  = SavedInputHandle;
-  gST->ConsoleOutHandle = SavedOutputHandle;
-  gST->ConIn           = SavedInput;
-  gST->ConOut          = SavedOutput;
-  gST->Hdr.CRC32       = 0;
-  gBS->CalculateCrc32 (&gST->Hdr, gST->Hdr.HeaderSize, &gST->Hdr.CRC32);
   mTpmBootGateComplete = TRUE;
 }
 
@@ -1049,9 +1089,9 @@ PlatformBootManagerBeforeConsole (
   }
 
   //
-  // Signal EndOfDxe PI Event
+  // Signal EndOfDxe PI Event, unless a physical-presence prompt already did.
   //
-  EfiEventGroupSignal (&gEfiEndOfDxeEventGroupGuid);
+  PlatformSignalEndOfDxe ();
 
   //
   // Dispatch deferred images after EndOfDxe event.
@@ -1088,47 +1128,9 @@ PlatformBootManagerBeforeConsole (
   FilterAndProcess (&gEdkiiNonDiscoverableDeviceProtocolGuid, IsUsbHost, Connect);
 
   //
-  // Add the hardcoded short-form USB keyboard device path to ConIn.
+  // Add the hardcoded USB keyboard and serial console device paths.
   //
-  EfiBootManagerUpdateConsoleVariable (
-    ConIn,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard,
-    NULL
-    );
-
-  //
-  // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
-  //
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdDefaultTerminalType) == 4,
-    "PcdDefaultTerminalType must be TTYTERM"
-    );
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdUartDefaultParity) != 0,
-    "PcdUartDefaultParity must be set to an actual value, not 'default'"
-    );
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdUartDefaultStopBits) != 0,
-    "PcdUartDefaultStopBits must be set to an actual value, not 'default'"
-    );
-
-  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
-
-  EfiBootManagerUpdateConsoleVariable (
-    ConIn,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
-  EfiBootManagerUpdateConsoleVariable (
-    ConOut,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
-  EfiBootManagerUpdateConsoleVariable (
-    ErrOut,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
+  PlatformRegisterBuiltInConsoles ();
 
   gBS->LocateHandleBuffer (
          ByProtocol,

@@ -110,7 +110,6 @@
   gEfiLoadedImageProtocolGuid
   gEfiSerialIoProtocolGuid
   gEfiSimpleTextInProtocolGuid
-  gEfiSimpleTextOutProtocolGuid
   gEfiTcg2ProtocolGuid
   gEfiPciRootBridgeIoProtocolGuid
   gEfiSimpleFileSystemProtocolGuid

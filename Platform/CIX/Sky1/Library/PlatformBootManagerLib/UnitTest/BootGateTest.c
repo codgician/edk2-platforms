@@ -63,10 +63,9 @@ STATIC EFI_STATUS                      mHierarchyStatus;
 STATIC EFI_STATUS                      mDisableStatus;
 STATIC EFI_STATUS                      mCapStatus;
 STATIC EFI_STATUS                      mConsoleStatus;
-STATIC EFI_STATUS mConnectStatus;
 STATIC BOOLEAN                         mTpmAbsent;
-STATIC BOOLEAN mSkipPp;
-STATIC BOOLEAN mWrongConsolePath;
+STATIC BOOLEAN                         mNeedConfirm;
+STATIC BOOLEAN                         mWrongConsolePath;
 STATIC UINTN                           mPpCount;
 STATIC UINTN                           mProtectCount;
 STATIC UINTN                           mDisableCount;
@@ -78,6 +77,18 @@ STATIC EFI_BOOT_SERVICES               mBootServices;
 STATIC EFI_SYSTEM_TABLE                mSystemTable;
 STATIC CHAR8                           mTrace[128];
 STATIC UINTN                           mTraceSize;
+
+#define SERIAL_HANDLE  ((EFI_HANDLE)(UINTN)1)
+#define GOP_HANDLE     ((EFI_HANDLE)(UINTN)3)
+#define USB_HANDLE     ((EFI_HANDLE)(UINTN)4)
+STATIC NON_DISCOVERABLE_DEVICE   mUsbHost = { .Type = &gEdkiiNonDiscoverableXhciDeviceGuid };
+STATIC EFI_DEVICE_PATH_PROTOCOL  mGopPath = {
+  END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 }
+};
+STATIC CONSOLE_TYPE              mVarType[8];
+STATIC EFI_DEVICE_PATH_PROTOCOL  *mVarPath[8];
+STATIC UINTN                     mVarCount;
+STATIC UINTN                     mEndOfDxeCount;
 
 STATIC VOID
 Trace (
@@ -103,9 +114,12 @@ EfiEventGroupSignal (
 {
   assert_ptr_equal (Guid, &gEfiEndOfDxeEventGroupGuid);
   Trace ('E');
-  assert_int_equal (mPpCount, (mTpmAbsent || mSkipPp || mEarlyCap) ? 0 : 1);
-  assert_int_equal (mProtectCount, (mTpmAbsent || mEarlyCap) ? 0 : 1);
-  if (mEarlyCap || EFI_ERROR (mHierarchyStatus)) {
+  mEndOfDxeCount++;
+  // A prompt needs the USB controllers that register at EndOfDxe, so it
+  // signals EndOfDxe before PP and the lock; other boots lock first.
+  assert_int_equal (mPpCount, (mTpmAbsent || mEarlyCap || mNeedConfirm) ? 0 : 1);
+  assert_int_equal (mProtectCount, (mTpmAbsent || mEarlyCap || mNeedConfirm) ? 0 : 1);
+  if (mEarlyCap || (EFI_ERROR (mHierarchyStatus) && !mNeedConfirm)) {
     assert_int_equal (mCapCount, 8);
   }
   return EFI_SUCCESS;
@@ -126,7 +140,7 @@ ConfigureTpmPlatformHierarchy (
   VOID
   )
 {
-  assert_int_equal (mPpCount, mSkipPp ? 0 : 1);
+  assert_int_equal (mPpCount, 1);
   mProtectCount++;
   Trace ('H');
   return mHierarchyStatus;
@@ -298,23 +312,14 @@ LocateDevicePath (
   EFI_HANDLE *Handle
   )
 {
+  assert_ptr_equal (Guid, &gEfiSerialIoProtocolGuid);
+  assert_ptr_equal (*Path, &mSerialConsole);
+  assert_memory_equal (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid, sizeof (EFI_GUID));
   if (EFI_ERROR (mConsoleStatus)) {
     return mConsoleStatus;
   }
-  if (Guid == &gEfiSerialIoProtocolGuid) {
-    assert_memory_equal (*Path, &mSerialConsole, OFFSET_OF (PLATFORM_SERIAL_CONSOLE, TermType));
-    *Path   = &mSerialConsole.TermType.Header;
-    *Handle = (EFI_HANDLE)(UINTN)1;
-  }
-  else {
-    assert_true ((Guid == &gEfiSimpleTextInProtocolGuid) || (Guid == &gEfiSimpleTextOutProtocolGuid));
-    *Path   = &mSerialConsole.End;
-    *Handle = (EFI_HANDLE)(UINTN)2;
-  }
-  if (mWrongConsolePath) {
-    *Path = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
-  }
-  Trace ('S');
+  *Path   = mWrongConsolePath ? &mSerialConsole.Uart.Header : &mSerialConsole.TermType.Header;
+  *Handle = SERIAL_HANDLE;
   return EFI_SUCCESS;
 }
 STATIC EFI_STATUS EFIAPI
@@ -324,14 +329,9 @@ HandleProtocol (
   VOID **Interface
   )
 {
-  assert_ptr_equal (Handle, (EFI_HANDLE)(UINTN)2);
-  if (Guid == &gEfiSimpleTextInProtocolGuid) {
-    *Interface = &mInput;
-  }
-  else {
-    assert_ptr_equal (Guid, &gEfiSimpleTextOutProtocolGuid);
-    *Interface = &mOutput;
-  }
+  assert_ptr_equal (Handle, USB_HANDLE);
+  assert_ptr_equal (Guid, &gEdkiiNonDiscoverableDeviceProtocolGuid);
+  *Interface = &mUsbHost;
   return EFI_SUCCESS;
 }
 STATIC EFI_STATUS EFIAPI
@@ -342,22 +342,63 @@ ConnectController (
   BOOLEAN Recursive
   )
 {
-  assert_ptr_equal (Handle, (EFI_HANDLE)(UINTN)1);
   assert_null (Drivers);
-  assert_ptr_equal (Path, &mSerialConsole.TermType.Header);
+  if (Handle == SERIAL_HANDLE) {
+    // Recursion lets ConPlatform and ConSplitter adopt the terminal child.
+    assert_ptr_equal (Path, &mSerialConsole.TermType.Header);
+    assert_true (Recursive);
+    Trace ('S');
+    return EFI_SUCCESS;
+  }
+  assert_null (Path);
   assert_false (Recursive);
-  Trace ('S');
-  return mConnectStatus;
+  if (Handle == GOP_HANDLE) {
+    Trace ('G');
+  } else {
+    assert_ptr_equal (Handle, USB_HANDLE);
+    Trace ('K');
+  }
+  return EFI_SUCCESS;
 }
 STATIC EFI_STATUS EFIAPI
-Crc (
-  VOID *Data,
-  UINTN Size,
-  UINT32 *Value
+LocateHandleBuffer (
+  EFI_LOCATE_SEARCH_TYPE Type,
+  EFI_GUID *Guid,
+  VOID *Key,
+  UINTN *Count,
+  EFI_HANDLE **Buffer
   )
 {
-  *Value = 0;
+  assert_int_equal (Type, ByProtocol);
+  assert_null (Key);
+  *Buffer = malloc (sizeof (EFI_HANDLE));
+  assert_non_null (*Buffer);
+  if (Guid == &gEfiGraphicsOutputProtocolGuid) {
+    **Buffer = GOP_HANDLE;
+  } else {
+    // The PCI root bridges are not connected yet: only SoC USB hosts exist,
+    // and their drivers register them from EndOfDxe notifications.
+    assert_ptr_equal (Guid, &gEdkiiNonDiscoverableDeviceProtocolGuid);
+    assert_int_equal (mEndOfDxeCount, 1);
+    **Buffer = USB_HANDLE;
+  }
+  *Count = 1;
   return EFI_SUCCESS;
+}
+STATIC EFI_STATUS EFIAPI
+FreeBuffer (
+  VOID *Buffer
+  )
+{
+  free (Buffer);
+  return EFI_SUCCESS;
+}
+BOOLEAN EFIAPI
+Tcg2PhysicalPresenceLibNeedUserConfirm (
+  VOID
+  )
+{
+  return mNeedConfirm;
 }
 UINTN EFIAPI
 SerialPortWrite (
@@ -465,8 +506,9 @@ EfiBootManagerDispatchDeferredImages (
   )
 {
   Trace ('U');
-  assert_int_equal (mPpCount, (mTpmAbsent || mSkipPp || mEarlyCap) ? 0 : 1);
+  assert_int_equal (mPpCount, (mTpmAbsent || mEarlyCap) ? 0 : 1);
   assert_int_equal (mProtectCount, (mTpmAbsent || mEarlyCap) ? 0 : 1);
+  assert_int_equal (mEndOfDxeCount, 1);
   longjmp (mStop, 1);
 }
 EFI_STATUS EFIAPI
@@ -476,7 +518,12 @@ EfiBootManagerUpdateConsoleVariable (
   EFI_DEVICE_PATH_PROTOCOL *Remove
   )
 {
-  abort ();
+  assert_null (Remove);
+  assert_true (mVarCount < ARRAY_SIZE (mVarType));
+  mVarType[mVarCount]   = Type;
+  mVarPath[mVarCount++] = Add;
+  Trace ('V');
+  return EFI_SUCCESS;
 }
 EFI_STATUS EFIAPI
 EfiBootManagerRegisterContinueKeyOption (
@@ -543,14 +590,14 @@ ConvertDevicePathToText (
   BOOLEAN Shortcuts
   )
 {
-  abort ();
+  return NULL;
 }
 EFI_DEVICE_PATH_PROTOCOL *EFIAPI
 DevicePathFromHandle (
   EFI_HANDLE Handle
   )
 {
-  abort ();
+  return (Handle == GOP_HANDLE) ? &mGopPath : NULL;
 }
 BOOLEAN EFIAPI
 PostCodeEnabled (
@@ -577,7 +624,7 @@ RunScenario (
   mHierarchyStatus                = Hierarchy;
   mDisableStatus                  = Disable;
   mCapStatus                      = CapStatus;
-  mPpCount = mProtectCount = mDisableCount = mCapCount = mTraceSize = 0;
+  mPpCount = mProtectCount = mDisableCount = mCapCount = mTraceSize = mVarCount = mEndOfDxeCount = 0;
   mStopped                        = FALSE;
   mSerialLength = mConsoleLength = 0;
   mSerialText[0] = mConsoleText[0] = 0;
@@ -594,15 +641,20 @@ RunScenario (
   }
   mOutput.OutputString = OutputString;
   mTpmBootGateComplete            = FALSE;
+  mEndOfDxeSignaled               = FALSE;
   ZeroMem (&mBootServices, sizeof (mBootServices));
   ZeroMem (&mSystemTable, sizeof (mSystemTable));
-  mBootServices.LocateProtocol    = LocateProtocol;
-  mBootServices.LocateDevicePath  = LocateDevicePath;
-  mBootServices.HandleProtocol    = HandleProtocol;
-  mBootServices.ConnectController = ConnectController;
-  mBootServices.CalculateCrc32    = Crc;
-  gBS                             = &mBootServices;
-  gST                             = &mSystemTable;
+  // The console splitter, which owns every console that joins it.
+  mSystemTable.ConIn  = &mInput;
+  mSystemTable.ConOut = &mOutput;
+  mBootServices.LocateProtocol     = LocateProtocol;
+  mBootServices.LocateDevicePath   = LocateDevicePath;
+  mBootServices.HandleProtocol     = HandleProtocol;
+  mBootServices.ConnectController  = ConnectController;
+  mBootServices.LocateHandleBuffer = LocateHandleBuffer;
+  mBootServices.FreePool           = FreeBuffer;
+  gBS                              = &mBootServices;
+  gST                              = &mSystemTable;
   if (setjmp (mStop) == 0) {
     PlatformBootManagerBeforeConsole ();
     fail ();
@@ -613,8 +665,8 @@ RunScenario (
     PlatformTpmBootGate ();
     assert_int_equal (mPpCount, PreviousPp);
     assert_int_equal (mProtectCount, PreviousProtect);
-    assert_null (gST->ConIn);
-    assert_null (gST->ConOut);
+    assert_ptr_equal (gST->ConIn, &mInput);
+    assert_ptr_equal (gST->ConOut, &mOutput);
   }
   printf ("bootgate trace: %s\n", mTrace);
 }
@@ -625,6 +677,8 @@ GateOrder (
 {
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
+  // Without a pending request no console is connected before the lock.
+  assert_string_equal (mTrace, "PHEU");
   assert_string_equal (mSerialText, "TPM BootGate: platform hierarchy protected (Success)\r\n");
   assert_string_equal (mConsoleText, mSerialText);
 }
@@ -677,69 +731,55 @@ AbsentTpm (
   assert_string_equal (mSerialText, "TPM BootGate: TPM absent, continuing (Not Found)\r\n");
   mTpmAbsent = FALSE;
 }
+STATIC BOOLEAN
+Registered (
+  CONSOLE_TYPE Type,
+  VOID *Path
+  )
+{
+  for (UINTN Index = 0; Index < mVarCount; Index++) {
+    if ((mVarType[Index] == Type) && (mVarPath[Index] == Path)) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
 STATIC VOID
-MissingTrustedConsole (
+PromptOnAllConsoles (
   VOID **State
   )
 {
+  mNeedConfirm = TRUE;
+  RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
+  assert_false (mStopped);
+  // EndOfDxe registers the USB controllers; ConPlatform admits only
+  // registered paths; serial, GOP and USB then join before PP and the lock,
+  // and the deferred-image dispatch still follows the lock.
+  assert_string_equal (mTrace, "EVVVVVVSGKPHU");
+  assert_true (Registered (ConIn, &mUsbKeyboard));
+  assert_true (Registered (ConIn, &mSerialConsole));
+  assert_true (Registered (ConOut, &mSerialConsole));
+  assert_true (Registered (ConOut, &mGopPath));
+  mNeedConfirm = FALSE;
+}
+STATIC VOID
+PromptWithoutSerialTerminal (
+  VOID **State
+  )
+{
+  mNeedConfirm   = TRUE;
   mConsoleStatus = EFI_NOT_FOUND;
-  mSkipPp = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_int_equal (mPpCount, 0);
-  assert_int_equal (mProtectCount, 1);
-  assert_non_null (strstr (mSerialText, "TPM BootGate: PP skipped (no trusted console) (Not Found)\r\n"));
-  assert_string_equal (mTrace, "HEU");
-  mConsoleStatus = EFI_SUCCESS;
-  mSkipPp = FALSE;
-}
-STATIC VOID
-AlreadyConnectedConsole (
-  VOID **State
-  )
-{
-  mConnectStatus = EFI_NOT_FOUND;
-  RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
-  assert_false (mStopped);
-  assert_int_equal (mProtectCount, 1);
-  mConnectStatus = EFI_SUCCESS;
-}
-
-STATIC VOID
-UnresolvableTrustedConsole (
-  VOID **State
-  )
-{
-  mSkipPp = TRUE;
+  assert_string_equal (mTrace, "EVVVVVVGKPHU");
+  mConsoleStatus    = EFI_SUCCESS;
+  // A partial match must not start TerminalDxe on another serial device.
   mWrongConsolePath = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_int_equal (mPpCount, 0);
-  assert_int_equal (mProtectCount, 1);
+  assert_string_equal (mTrace, "EVVVVVVGKPHU");
   mWrongConsolePath = FALSE;
-  mSkipPp = FALSE;
-}
-
-STATIC VOID
-MissingConsoleFallbacks (
-  VOID **State
-  )
-{
-  mConsoleStatus = EFI_NOT_FOUND;
-  mSkipPp = TRUE;
-  RunScenario (EFI_DEVICE_ERROR, EFI_SUCCESS, EFI_SUCCESS);
-  assert_false (mStopped);
-  assert_int_equal (mDisableCount, 1);
-  assert_int_equal (mPpCount, 0);
-  RunScenario (EFI_DEVICE_ERROR, EFI_DEVICE_ERROR, EFI_SUCCESS);
-  assert_false (mStopped);
-  assert_int_equal (mCapCount, 8);
-  assert_int_equal (mPpCount, 0);
-  RunScenario (EFI_DEVICE_ERROR, EFI_DEVICE_ERROR, EFI_DEVICE_ERROR);
-  assert_true (mStopped);
-  assert_int_equal (mPpCount, 0);
-  mConsoleStatus = EFI_SUCCESS;
-  mSkipPp = FALSE;
+  mNeedConfirm      = FALSE;
 }
 
 STATIC VOID
@@ -853,7 +893,7 @@ main (
   )
 {
   const struct CMUnitTest Tests[] = {
-    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (MissingTrustedConsole), cmocka_unit_test (AlreadyConnectedConsole), cmocka_unit_test (UnresolvableTrustedConsole), cmocka_unit_test (MissingConsoleFallbacks)
+    cmocka_unit_test (GateOrder), cmocka_unit_test (DisableFallback), cmocka_unit_test (CapFallback), cmocka_unit_test (CapFailureStops), cmocka_unit_test (AbsentTpm), cmocka_unit_test (PromptOnAllConsoles), cmocka_unit_test (PromptWithoutSerialTerminal)
     , cmocka_unit_test (LookupFailureCaps), cmocka_unit_test (CapabilityFailureCaps), cmocka_unit_test (UnprovenCapStops), cmocka_unit_test (RawCapBanks)
   };
   if (getenv ("GATE_TEST_FILTER") != NULL) {
