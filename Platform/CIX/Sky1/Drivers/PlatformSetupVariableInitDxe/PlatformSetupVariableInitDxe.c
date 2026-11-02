@@ -533,46 +533,188 @@ ConstructSetupVariable (
   PlatformSetupVar->SPEEnable               = FixedPcdGet8 (PcdSPEEn);
 }
 
+//
+// PLATFORM_SETUP_DATA fields that CIX release 2026Q2 inserted into the 2025Q4
+// layout, in layout order. The 2025Q4 variable is the only older layout
+// whose size identifies it: Beta1 RC3 and Beta2/2025Q3 share 224 bytes with
+// different field orders, so those, like any unknown size, get defaults.
+//
+typedef struct {
+  UINTN    Offset;
+  UINTN    Size;
+} SETUP_FIELD_RANGE;
+
+STATIC CONST SETUP_FIELD_RANGE  mAddedAfter2025Q4[] = {
+  { OFFSET_OF (PLATFORM_SETUP_DATA, Usb3Control0DataRole), sizeof (UINT8)     },
+  { OFFSET_OF (PLATFORM_SETUP_DATA, SmmuEnable),           3 * sizeof (UINT8) },
+};
+
+#define SETUP_DATA_2025Q4_SIZE  (sizeof (PLATFORM_SETUP_DATA) - 4)
+
+/**
+  Read a fixed-size setup variable without trusting the stored size.
+
+  @param[in]  Name        Variable name.
+  @param[in]  Guid        Variable vendor GUID.
+  @param[out] Data        Buffer of Size bytes; zeroed, then filled with the
+                          stored bytes when they fit.
+  @param[in]  Size        Size of the current layout.
+  @param[out] StoredSize  Size of the stored variable when it exists.
+
+  @return Status of GetVariable.
+**/
+STATIC
+EFI_STATUS
+ReadSetupVariable (
+  IN  CHAR16    *Name,
+  IN  EFI_GUID  *Guid,
+  OUT VOID      *Data,
+  IN  UINTN     Size,
+  OUT UINTN     *StoredSize
+  )
+{
+  EFI_STATUS  Status;
+
+  ZeroMem (Data, Size);
+  *StoredSize = Size;
+  Status      = gRT->GetVariable (Name, Guid, NULL, StoredSize, Data);
+  if (Status == EFI_BUFFER_TOO_SMALL) {
+    //
+    // Nothing was copied; leave the buffer zeroed for the caller's defaults.
+    //
+    ZeroMem (Data, Size);
+  }
+
+  return Status;
+}
+
+/**
+  Store a setup variable with the current layout size, boot-services only.
+**/
+STATIC
+EFI_STATUS
+WriteSetupVariable (
+  IN CHAR16    *Name,
+  IN EFI_GUID  *Guid,
+  IN VOID      *Data,
+  IN UINTN     Size
+  )
+{
+  EFI_STATUS  Status;
+
+  Status = gRT->SetVariable (
+                  Name,
+                  Guid,
+                  EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
+                  Size,
+                  Data
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: SetVariable %s failed - %r\n", __func__, Name, Status));
+  }
+
+  return Status;
+}
+
+/**
+  Whether a setup variable read must be replaced by a current-layout value.
+
+  @retval TRUE   Missing, or stored with a different size (older or foreign
+                 layout).
+  @retval FALSE  Stored with the current size, or the read failed for another
+                 reason; Status then carries that error.
+**/
+STATIC
+BOOLEAN
+NeedsSetupVariableRewrite (
+  IN EFI_STATUS  Status,
+  IN UINTN       StoredSize,
+  IN UINTN       Size
+  )
+{
+  if (Status == EFI_SUCCESS) {
+    return StoredSize != Size;
+  }
+
+  return (Status == EFI_NOT_FOUND) || (Status == EFI_BUFFER_TOO_SMALL);
+}
+
+/**
+  Rebuild a 2025Q4-layout setup variable in the current layout: stored values
+  move to their current offsets; fields added since keep their defaults.
+
+  @param[in]      Stored  The SETUP_DATA_2025Q4_SIZE stored bytes.
+  @param[in, out] Setup   Current-layout defaults, updated in place.
+**/
+STATIC
+VOID
+MigrateSetupData2025Q4 (
+  IN     CONST UINT8          *Stored,
+  IN OUT PLATFORM_SETUP_DATA  *Setup
+  )
+{
+  UINT8  *Out;
+  UINTN  Dst;
+  UINTN  Src;
+  UINTN  Index;
+
+  Out = (UINT8 *)Setup;
+  Dst = 0;
+  Src = 0;
+  for (Index = 0; Index < ARRAY_SIZE (mAddedAfter2025Q4); Index++) {
+    CopyMem (Out + Dst, Stored + Src, mAddedAfter2025Q4[Index].Offset - Dst);
+    Src += mAddedAfter2025Q4[Index].Offset - Dst;
+    Dst  = mAddedAfter2025Q4[Index].Offset + mAddedAfter2025Q4[Index].Size;
+  }
+
+  CopyMem (Out + Dst, Stored + Src, sizeof (PLATFORM_SETUP_DATA) - Dst);
+  ASSERT (Src + sizeof (PLATFORM_SETUP_DATA) - Dst == SETUP_DATA_2025Q4_SIZE);
+}
+
 EFI_STATUS
 PlatformSetupVariableInit (
   VOID
   )
 {
-  EFI_STATUS           Status = EFI_SUCCESS;
-  UINTN                VarSize;
+  EFI_STATUS           Status;
+  UINTN                StoredSize;
+  PLATFORM_SETUP_DATA  Stored;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
 
-  VarSize = sizeof (PLATFORM_SETUP_DATA);
-
-  Status = gRT->GetVariable (
-                  PLATFORM_SETUP_VAR,
-                  &gPlatformSetupVariableGuid,
-                  NULL,
-                  &VarSize,
-                  &PlatformSetupVar
-                  );
-  if (EFI_ERROR (Status)) {
-    //
-    // Variable does not exist yet - create it
-    //
-    ZeroMem (&PlatformSetupVar, VarSize);
-    ConstructSetupVariable (&PlatformSetupVar);
-
-    Status = gRT->SetVariable (
-                    PLATFORM_SETUP_VAR,
-                    &gPlatformSetupVariableGuid,
-                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                    sizeof (PLATFORM_SETUP_DATA),
-                    &PlatformSetupVar
-                    );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_INFO, "%a: EfiSetVariable failed - %r\n", __FUNCTION__, Status));
-    }
-  } else {
-    DEBUG ((DEBUG_INFO, "%a: EfiGetVariable Success - %r\n", __FUNCTION__, Status));
+  Status = ReadSetupVariable (
+             PLATFORM_SETUP_VAR,
+             &gPlatformSetupVariableGuid,
+             &Stored,
+             sizeof (Stored),
+             &StoredSize
+             );
+  if (!NeedsSetupVariableRewrite (Status, StoredSize, sizeof (Stored))) {
+    DEBUG ((DEBUG_INFO, "%a: GetVariable - %r\n", __func__, Status));
+    return Status;
   }
 
-  return Status;
+  ZeroMem (&PlatformSetupVar, sizeof (PlatformSetupVar));
+  ConstructSetupVariable (&PlatformSetupVar);
+  if ((Status == EFI_SUCCESS) && (StoredSize == SETUP_DATA_2025Q4_SIZE)) {
+    MigrateSetupData2025Q4 ((CONST UINT8 *)&Stored, &PlatformSetupVar);
+    PlatformSetupVar.TPMDeviceSelect = FixedPcdGet8 (PcdDefaultTpmDeviceSelect);
+    DEBUG ((DEBUG_WARN, "%a: migrated the 2025Q4 setup layout\n", __func__));
+  } else if (Status != EFI_NOT_FOUND) {
+    DEBUG ((
+      DEBUG_WARN,
+      "%a: stored setup has %u bytes, expected %u; using defaults\n",
+      __func__,
+      (UINT32)StoredSize,
+      (UINT32)sizeof (PLATFORM_SETUP_DATA)
+      ));
+  }
+
+  return WriteSetupVariable (
+           PLATFORM_SETUP_VAR,
+           &gPlatformSetupVariableGuid,
+           &PlatformSetupVar,
+           sizeof (PlatformSetupVar)
+           );
 }
 
 EFI_STATUS
@@ -580,44 +722,34 @@ NetworkStackVariableInit (
   VOID
   )
 {
-  EFI_STATUS     Status = EFI_SUCCESS;
-  UINTN          VarSize;
+  EFI_STATUS     Status;
+  UINTN          StoredSize;
   NETWORK_STACK  NetworkStack;
 
-  VarSize = sizeof (NETWORK_STACK);
-
-  Status = gRT->GetVariable (
-                  NETWORK_STACK_VAR,
-                  &gEfiNetworkStackSetupGuid,
-                  NULL,
-                  &VarSize,
-                  &NetworkStack
-                  );
-  if (EFI_ERROR (Status)) {
-    ZeroMem (&NetworkStack, VarSize);
-    //
-    // Variable does not exist yet - create it
-    //
-    NetworkStack.Enable   = FixedPcdGet8 (PcdNetworkStackSupport);
-    NetworkStack.Ipv4Pxe  = FixedPcdGet8 (PcdIPv4PXESupport);
-    NetworkStack.Ipv6Pxe  = FixedPcdGet8 (PcdIPv6PXESupport);
-    NetworkStack.Ipv4Http = FixedPcdGetBool (PcdIPv4HttpSupport);
-    NetworkStack.Ipv6Http = FixedPcdGetBool (PcdIPv6HttpSupport);
-    Status                = gRT->SetVariable (
-                                   NETWORK_STACK_VAR,
-                                   &gEfiNetworkStackSetupGuid,
-                                   EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                                   sizeof (NETWORK_STACK),
-                                   &NetworkStack
-                                   );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_INFO, "%a: EfiSetVariable failed - %r\n", __FUNCTION__, Status));
-    }
-  } else {
-    DEBUG ((DEBUG_INFO, "%a: EfiGetVariable Success - %r\n", __FUNCTION__, Status));
+  Status = ReadSetupVariable (
+             NETWORK_STACK_VAR,
+             &gEfiNetworkStackSetupGuid,
+             &NetworkStack,
+             sizeof (NetworkStack),
+             &StoredSize
+             );
+  if (!NeedsSetupVariableRewrite (Status, StoredSize, sizeof (NetworkStack))) {
+    DEBUG ((DEBUG_INFO, "%a: GetVariable - %r\n", __func__, Status));
+    return Status;
   }
 
-  return Status;
+  ZeroMem (&NetworkStack, sizeof (NetworkStack));
+  NetworkStack.Enable   = FixedPcdGet8 (PcdNetworkStackSupport);
+  NetworkStack.Ipv4Pxe  = FixedPcdGet8 (PcdIPv4PXESupport);
+  NetworkStack.Ipv6Pxe  = FixedPcdGet8 (PcdIPv6PXESupport);
+  NetworkStack.Ipv4Http = FixedPcdGetBool (PcdIPv4HttpSupport);
+  NetworkStack.Ipv6Http = FixedPcdGetBool (PcdIPv6HttpSupport);
+  return WriteSetupVariable (
+           NETWORK_STACK_VAR,
+           &gEfiNetworkStackSetupGuid,
+           &NetworkStack,
+           sizeof (NetworkStack)
+           );
 }
 
 EFI_STATUS
@@ -625,40 +757,30 @@ SystemTableVariableInit (
   VOID
   )
 {
-  EFI_STATUS    Status = EFI_SUCCESS;
-  UINTN         VarSize;
+  EFI_STATUS    Status;
+  UINTN         StoredSize;
   SYSTEM_TABLE  SystemTableVar;
 
-  VarSize = sizeof (SYSTEM_TABLE);
-
-  Status = gRT->GetVariable (
-                  SYSTEM_TABLE_VAR,
-                  &gCixGlobalVariableGuid,
-                  NULL,
-                  &VarSize,
-                  &SystemTableVar
-                  );
-
-  if (EFI_ERROR (Status)) {
-    //
-    // Variable does not exist yet - create it
-    //
-    SystemTableVar.SystemTableSelect = FixedPcdGet8 (PcdSystemTableSelect);
-    Status                           = gRT->SetVariable (
-                                              SYSTEM_TABLE_VAR,
-                                              &gCixGlobalVariableGuid,
-                                              EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS,
-                                              VarSize,
-                                              &SystemTableVar
-                                              );
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_INFO, "%a: EfiSetVariable failed - %r\n", __FUNCTION__, Status));
-    }
-  } else {
-    DEBUG ((DEBUG_INFO, "%a: EfiGetVariable Success - %r\n", __FUNCTION__, Status));
+  Status = ReadSetupVariable (
+             SYSTEM_TABLE_VAR,
+             &gCixGlobalVariableGuid,
+             &SystemTableVar,
+             sizeof (SystemTableVar),
+             &StoredSize
+             );
+  if (!NeedsSetupVariableRewrite (Status, StoredSize, sizeof (SystemTableVar))) {
+    DEBUG ((DEBUG_INFO, "%a: GetVariable - %r\n", __func__, Status));
+    return Status;
   }
 
-  return Status;
+  ZeroMem (&SystemTableVar, sizeof (SystemTableVar));
+  SystemTableVar.SystemTableSelect = FixedPcdGet8 (PcdSystemTableSelect);
+  return WriteSetupVariable (
+           SYSTEM_TABLE_VAR,
+           &gCixGlobalVariableGuid,
+           &SystemTableVar,
+           sizeof (SystemTableVar)
+           );
 }
 
 EFI_STATUS
