@@ -115,7 +115,6 @@ PpReadRequest (
 
   if (EFI_ERROR (Status)) {
     ZeroMem (Request, sizeof (*Request));
-    DEBUG ((DEBUG_ERROR, "[TPM2] Invalid PP request: %r\n", Status));
   }
 
   return Status;
@@ -188,10 +187,7 @@ PpGetAllocation (
 
   Hashable = PcdGet32 (PcdTcg2HashAlgorithmBitmap);
   *Desired = (Operation == TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS) ? (*Supported & Hashable) : Parameter;
-  if ((*Supported == 0) || ((*Supported & ~PP_PCR_BANK_MASK) != 0) ||
-      (Active == 0) || ((Active & ~*Supported) != 0) ||
-      (*Desired == 0) || ((*Desired & ~(*Supported & Hashable)) != 0))
-  {
+  if ((Active == 0) || (*Desired == 0) || ((*Desired & ~(*Supported & Hashable)) != 0)) {
     return EFI_COMPROMISED_DATA;
   }
 
@@ -217,7 +213,6 @@ PpConfirm (
   )
 {
   EFI_STATUS     Status;
-  EFI_STATUS     CloseStatus;
   EFI_EVENT      Timer;
   EFI_EVENT      Events[2];
   EFI_INPUT_KEY  Key;
@@ -225,7 +220,7 @@ PpConfirm (
   BOOLEAN        Accepted;
   UINTN          Printed;
 
-  if ((gST == NULL) || (gST->ConIn == NULL) || (gST->ConOut == NULL)) {
+  if ((gST->ConIn == NULL) || (gST->ConOut == NULL)) {
     return FALSE;
   }
 
@@ -294,8 +289,8 @@ PpConfirm (
   }
 
 Done:
-  CloseStatus = gBS->CloseEvent (Timer);
-  return Accepted && !EFI_ERROR (CloseStatus);
+  gBS->CloseEvent (Timer);
+  return Accepted;
 }
 
 /** Execute exactly the authorized operation; erase the local auth copy.

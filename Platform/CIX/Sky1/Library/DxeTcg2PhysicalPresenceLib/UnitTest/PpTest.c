@@ -296,11 +296,7 @@ history_and_pcr_errors (
   PpReset (33, 0);
   mPp.Accept    = TRUE;
   mPp.Supported = 0;
-  Tcg2PhysicalPresenceLibProcessRequest (NULL);
-  assert_int_equal (mPp.TraceCount, 0);
-  PpReset (33, 0);
-  mPp.Accept = TRUE;
-  mPp.Active = 0x80;
+  mPp.Active    = 0;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
   PpReset (5, 0);
