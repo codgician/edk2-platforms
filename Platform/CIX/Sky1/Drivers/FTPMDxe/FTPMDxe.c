@@ -8,13 +8,16 @@
   OS can open the same instance and observe the PCRs firmware extended.
 
   The outcome is published in the volatile variable FtpmStatus under
-  gCixFtpmInitProtocolGuid, readable from the OS for diagnostics.
+  gCixFtpmInitProtocolGuid, readable from the OS for diagnostics. From
+  ReadyToBoot on, the OEM ACPI table OEMF also carries it as one ASCII line,
+  rewritten in place through ExitBootServices, where variables are unsafe.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include <PiDxe.h>
 #include <Guid/EventGroup.h>
+#include <IndustryStandard/Acpi.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/OpteeClientApiLib.h>
@@ -26,6 +29,8 @@
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include <Library/tee_client_api.h>
 #include <Protocol/FTPMInitProtocol.h>
+#include <Protocol/AcpiSystemDescriptionTable.h>
+#include <Protocol/AcpiTable.h>
 #include "../../Library/OpteeClientApiLib/OpteeClientDiagnostics.h"
 #include <Library/Tpm2CommandLib.h>
 #include "../../Library/PlatformBootManagerLib/TpmBootCap.h"
@@ -38,6 +43,20 @@
 #define FTPM_TA_MAX_RESPONSE    0x1000
 
 #define FTPM_STATUS_VARIABLE  L"FtpmStatus"
+
+//
+// "OEMx" signatures are reserved for OEM tables; Linux exposes this one at
+// /sys/firmware/acpi/tables/OEMF and never loads it as AML.
+//
+#define FTPM_ACPI_STATUS_SIGNATURE  SIGNATURE_32 ('O', 'E', 'M', 'F')
+#define FTPM_ACPI_STATUS_TEXT_SIZE  384
+
+#pragma pack(1)
+typedef struct {
+  EFI_ACPI_DESCRIPTION_HEADER    Header;
+  CHAR8                          Text[FTPM_ACPI_STATUS_TEXT_SIZE];
+} FTPM_ACPI_STATUS_TABLE;
+#pragma pack()
 
 STATIC TEEC_Context  mContext;
 STATIC TEEC_Session  mSession;
@@ -58,6 +77,17 @@ STATIC UINT32       mCommands;
 STATIC UINT32       mFailures;
 STATIC TEEC_Result  mLastFailure;
 STATIC UINT32       mLastFailureOrigin;
+STATIC TEEC_Result  mCloseResult;
+STATIC UINT32       mCloses;
+
+//
+// The installed OEMF copy, written in place after ReadyToBoot.
+//
+STATIC FTPM_ACPI_STATUS_TABLE  *mAcpiStatus;
+STATIC BOOLEAN                 mAcpiStatusAttempted;
+STATIC BOOLEAN                 mAcpiStatusBusy;
+STATIC BOOLEAN                 mAcpiStatusDirty;
+STATIC CONST CHAR8             *mStage = "rtb";
 
 /** Emit status-only diagnostics without allocation, including at EBS. **/
 STATIC
@@ -140,6 +170,155 @@ PublishStatus (
                     Length,
                     Text
                     );
+}
+
+/**
+  Render the status line into Table and fix its checksum. Plain memory
+  writes only (no allocation, protocol, variable or console), so it is safe
+  inside ExitBootServices notifications.
+**/
+STATIC
+VOID
+RenderAcpiStatus (
+  OUT FTPM_ACPI_STATUS_TABLE  *Table
+  )
+{
+  OPTEE_CLIENT_DIAGNOSTICS  Client;
+  UINTN                     Length;
+
+  OpteeClientGetDiagnostics (&Client);
+  ZeroMem (Table->Text, sizeof (Table->Text));
+  Length = AsciiSPrint (
+                        Table->Text,
+                        sizeof (Table->Text),
+                        "FTPM stage=%a client=%r open=0x%x/%u commands=%u failures=%u first-failure=0x%x/%u "
+                        "closes=%u close=0x%x client-broken=%u broken-call=%u broken-rpcs=%u "
+                        "rejects=%u first-reject=\"%a\" value=0x%lx status=0x%lx",
+                        mStage,
+                        mClientStatus,
+                        mOpenResult,
+                        mOpenOrigin,
+                        mCommands,
+                        mFailures,
+                        mLastFailure,
+                        mLastFailureOrigin,
+                        mCloses,
+                        mCloseResult,
+                        (UINT32)Client.Broken,
+                        Client.BrokenCall,
+                        Client.BrokenRpcs,
+                        Client.Rejects,
+                        (Client.FirstCheck != NULL) ? Client.FirstCheck : "-",
+                        Client.FirstValue,
+                        Client.FirstStatus
+                        );
+
+  // PrintLib would expand "\n" to CR LF; end the line Unix-style. The
+  // buffer was zeroed, so the terminator and padding stay NUL.
+  if (Length < sizeof (Table->Text) - 1) {
+    Table->Text[Length] = '\n';
+  }
+
+  Table->Header.Checksum = 0;
+  Table->Header.Checksum = CalculateCheckSum8 ((CONST UINT8 *)Table, sizeof (*Table));
+}
+
+/**
+  Refresh the installed table, optionally advancing the stage. A failure
+  submitted from a higher-TPL notification while a refresh is in progress
+  marks it dirty and the outer refresh renders again.
+
+  @param[in] Stage  New stage literal, or NULL to keep the current one.
+**/
+STATIC
+VOID
+UpdateAcpiStatus (
+  IN CONST CHAR8  *Stage OPTIONAL
+  )
+{
+  if (Stage != NULL) {
+    mStage = Stage;
+  }
+
+  if (mAcpiStatus == NULL) {
+    return;
+  }
+
+  mAcpiStatusDirty = TRUE;
+  if (mAcpiStatusBusy) {
+    return;
+  }
+
+  mAcpiStatusBusy = TRUE;
+  while (mAcpiStatusDirty) {
+    mAcpiStatusDirty = FALSE;
+    RenderAcpiStatus (mAcpiStatus);
+  }
+
+  mAcpiStatusBusy = FALSE;
+}
+
+/**
+  Install OEMF and keep the address of AcpiTableDxe's copy for in-place
+  updates. Any failure only loses the table; boot continues.
+**/
+STATIC
+VOID
+InstallAcpiStatus (
+  VOID
+  )
+{
+  EFI_ACPI_TABLE_PROTOCOL  *AcpiTable;
+  EFI_ACPI_SDT_PROTOCOL    *AcpiSdt;
+  EFI_ACPI_SDT_HEADER      *Installed;
+  EFI_ACPI_TABLE_VERSION   Version;
+  FTPM_ACPI_STATUS_TABLE   Table;
+  UINTN                    TableKey;
+  UINTN                    Key;
+  UINTN                    Index;
+  EFI_STATUS               Status;
+
+  Status = gBS->LocateProtocol (&gEfiAcpiTableProtocolGuid, NULL, (VOID **)&AcpiTable);
+  if (!EFI_ERROR (Status)) {
+    Status = gBS->LocateProtocol (&gEfiAcpiSdtProtocolGuid, NULL, (VOID **)&AcpiSdt);
+  }
+
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("ACPI status table unavailable", Status, FALSE, TRUE);
+    return;
+  }
+
+  ZeroMem (&Table, sizeof (Table));
+  Table.Header.Signature       = FTPM_ACPI_STATUS_SIGNATURE;
+  Table.Header.Length          = sizeof (Table);
+  Table.Header.Revision        = 1;
+  CopyMem (Table.Header.OemId, "CIXTEK", sizeof (Table.Header.OemId));
+  Table.Header.OemTableId      = SIGNATURE_64 ('F', 'T', 'P', 'M', 'D', 'I', 'A', 'G');
+  Table.Header.OemRevision     = 1;
+  Table.Header.CreatorId       = SIGNATURE_32 ('C', 'I', 'X', ' ');
+  Table.Header.CreatorRevision = 1;
+  RenderAcpiStatus (&Table);
+  Status = AcpiTable->InstallAcpiTable (AcpiTable, &Table, sizeof (Table), &TableKey);
+  if (EFI_ERROR (Status)) {
+    ReportDecision ("ACPI status table not installed", Status, FALSE, TRUE);
+    return;
+  }
+
+  for (Index = 0; !EFI_ERROR (AcpiSdt->GetAcpiTable (Index, &Installed, &Version, &Key)); Index++) {
+    if (Key == TableKey) {
+      if ((Installed->Signature == FTPM_ACPI_STATUS_SIGNATURE) && (Installed->Length == sizeof (Table))) {
+        mAcpiStatus = (FTPM_ACPI_STATUS_TABLE *)Installed;
+      }
+
+      break;
+    }
+  }
+
+  if (mAcpiStatus == NULL) {
+    // A frozen ReadyToBoot snapshot would misreport the EBS windows.
+    AcpiTable->UninstallAcpiTable (AcpiTable, TableKey);
+    ReportDecision ("ACPI status table copy not found, removed", EFI_NOT_FOUND, FALSE, TRUE);
+  }
 }
 
 /** The single TA session is private to this driver; never hand it out. **/
@@ -285,6 +464,8 @@ FtpmSubmitCommand (
     mLastFailureOrigin = Origin;
   }
 
+  UpdateAcpiStatus (NULL);
+
 Done:
   ScrubBuffer (mResponseBuffer, sizeof (mResponseBuffer));
   mCommandBusy = FALSE;
@@ -325,6 +506,7 @@ OnBeforeExitBootServices (
   )
 {
   OpteeClientApiExitBootServices ();
+  UpdateAcpiStatus ("before-ebs");
 }
 
 /**
@@ -342,17 +524,24 @@ OnExitBootServices (
 {
   TEEC_Result  Result;
 
+  // Records the final measurements even if the close below never returns.
+  UpdateAcpiStatus ("ebs");
   mSessionUsable = FALSE;
   if (mSessionOpen) {
     // The client uses static SHM and allocation records reserved at init.
-    Result = OpteeClientCloseSession (&mSession);
+    Result       = OpteeClientCloseSession (&mSession);
+    mCloseResult = Result;
+    mCloses++;
     if (Result != TEEC_SUCCESS) {
+      UpdateAcpiStatus ("ebs-close");
       ReportDecision ("EBS close failed, continuing OS handoff", Result, TRUE, TRUE);
       return;
     }
 
     mSessionOpen = FALSE;
   }
+
+  UpdateAcpiStatus ("ebs-close");
 }
 
 STATIC
@@ -364,6 +553,12 @@ OnReadyToBoot (
   )
 {
   PublishStatus ();
+  if (!mAcpiStatusAttempted) {
+    mAcpiStatusAttempted = TRUE;
+    InstallAcpiStatus ();
+  }
+
+  UpdateAcpiStatus ("rtb");
 }
 
 /**

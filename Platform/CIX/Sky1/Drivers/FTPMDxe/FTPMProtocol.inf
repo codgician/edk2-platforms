@@ -45,6 +45,8 @@
 
 [Protocols]
   gCixFtpmInitProtocolGuid         ## PRODUCES
+  gEfiAcpiTableProtocolGuid        ## SOMETIMES_CONSUMES
+  gEfiAcpiSdtProtocolGuid          ## SOMETIMES_CONSUMES
 
 [Depex]
   # Diagnostics use the variable service only before ExitBootServices.

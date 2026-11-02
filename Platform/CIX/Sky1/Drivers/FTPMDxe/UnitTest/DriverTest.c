@@ -513,6 +513,99 @@ CapabilityConsumer (
   assert_memory_equal (&Capability, Data, sizeof (Data));
 }
 
+STATIC void
+AcpiStatusHealthy (
+  void  **State
+  )
+{
+  UINT32  Size = 32;
+
+  assert_null (TestAcpiStatusText ());
+  TestReadyToBoot ();
+  assert_int_equal (Submit (&Size), EFI_SUCCESS);
+  TestExitBootServices ();
+  assert_string_equal (
+                       TestAcpiStatusText (),
+                       "FTPM stage=ebs-close client=Success open=0x0/4 commands=1 failures=0 first-failure=0x0/0 "
+                       "closes=1 close=0x0 client-broken=0 broken-call=0 broken-rpcs=0 "
+                       "rejects=0 first-reject=\"-\" value=0x0 status=0x0\n"
+                       );
+}
+
+STATIC void
+AcpiStatusFailures (
+  void  **State
+  )
+{
+  UINT32  Size = 32;
+  UINTN   Writes;
+
+  TestReadyToBoot ();
+  Writes = TestVariableWrites;
+  assert_non_null (strstr (TestAcpiStatusText (), "stage=rtb "));
+
+  // A boot loader's command fails after ReadyToBoot; the client abandoned a call.
+  TestClientDiagnostics.FirstCheck  = "RPC loop bound";
+  TestClientDiagnostics.FirstValue  = 1024;
+  TestClientDiagnostics.FirstStatus = TEEC_ERROR_COMMUNICATION;
+  TestClientDiagnostics.Rejects     = 1;
+  TestClientDiagnostics.Broken      = TRUE;
+  TestClientDiagnostics.BrokenCall  = 37;
+  TestClientDiagnostics.BrokenRpcs  = 1024;
+  TestInvokeResult                  = TEEC_ERROR_GENERIC;
+  assert_int_equal (Submit (&Size), EFI_DEVICE_ERROR);
+  assert_non_null (strstr (TestAcpiStatusText (), "stage=rtb client=Success open=0x0/4 commands=1 failures=1 first-failure=0xFFFF0000/4 "));
+  assert_non_null (strstr (TestAcpiStatusText (), " client-broken=1 broken-call=37 broken-rpcs=1024 rejects=1 first-reject=\"RPC loop bound\" value=0x400 status=0xFFFF000E\n"));
+
+  // Tcg2Dxe's final measurement fails inside the EBS window.
+  TestBeforeExitBootServices ();
+  assert_non_null (strstr (TestAcpiStatusText (), "stage=before-ebs "));
+  TestAtEbs        = TRUE;
+  TestInvokeResult = TEEC_ERROR_COMMUNICATION;
+  Size             = 32;
+  assert_int_equal (Submit (&Size), EFI_DEVICE_ERROR);
+  assert_non_null (strstr (TestAcpiStatusText (), "stage=before-ebs client=Success open=0x0/4 commands=2 failures=2 "));
+
+  TestCloseResult = TEEC_ERROR_BUSY;
+  TestExitBootServices ();
+  assert_true (TestSessionStillOpen ());
+  assert_string_equal (
+                       TestAcpiStatusText (),
+                       "FTPM stage=ebs-close client=Success open=0x0/4 commands=2 failures=2 first-failure=0xFFFF0000/4 "
+                       "closes=1 close=0xFFFF000D client-broken=1 broken-call=37 broken-rpcs=1024 "
+                       "rejects=1 first-reject=\"RPC loop bound\" value=0x400 status=0xFFFF000E\n"
+                       );
+  assert_int_equal (TestVariableWrites, Writes);
+  assert_int_equal (TestConsoleWrites, 0);
+}
+
+STATIC void
+AcpiStatusUnavailable (
+  void  **State
+  )
+{
+  TestAcpiLocateResult = EFI_NOT_FOUND;
+  TestReadyToBoot ();
+  assert_null (TestAcpiStatusText ());
+  assert_non_null (strstr (TestSerial, "TPM FTPMDxe: ACPI status table unavailable (Not Found)\r\n"));
+  assert_int_equal (TestConsoleWrites, 0);
+  TestExitBootServices ();
+  assert_int_equal (TestCheckedCloses, 1);
+  assert_false (TestSessionStillOpen ());
+
+  // A table whose live copy cannot be found would freeze at ReadyToBoot.
+  Before (State);
+  TestAcpiCopyHidden = TRUE;
+  TestReadyToBoot ();
+  assert_null (TestAcpiStatusText ());
+  assert_int_equal (TestAcpiUninstalls, 1);
+  assert_int_equal (SerialLines (), 1);
+  TestReadyToBoot ();
+  assert_int_equal (TestAcpiUninstalls, 1);
+  TestExitBootServices ();
+  assert_int_equal (TestCheckedCloses, 1);
+}
+
 int
 main (
   void
@@ -543,7 +636,10 @@ main (
     cmocka_unit_test_setup (InitializationDiagnostics,    Before),
     cmocka_unit_test_setup (FinalMeasurementBeforeClose,  Before),
     cmocka_unit_test_setup (DiagnosticsBeforeEbs,         Before),
-    cmocka_unit_test_setup (CapabilityConsumer,           Before)
+    cmocka_unit_test_setup (CapabilityConsumer,           Before),
+    cmocka_unit_test_setup (AcpiStatusHealthy,            Before),
+    cmocka_unit_test_setup (AcpiStatusFailures,           Before),
+    cmocka_unit_test_setup (AcpiStatusUnavailable,        Before)
   };
   return cmocka_run_group_tests (Tests, NULL, NULL);
 }

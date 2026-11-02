@@ -123,6 +123,32 @@ IsZeroGuid (
   return IsZeroBuffer (Guid, sizeof (GUID));
 }
 
+UINT8
+EFIAPI
+CalculateSum8 (
+  IN CONST UINT8  *Buffer,
+  IN UINTN        Length
+  )
+{
+  UINT8  Sum = 0;
+
+  while (Length-- != 0) {
+    Sum = (UINT8)(Sum + *Buffer++);
+  }
+
+  return Sum;
+}
+
+UINT8
+EFIAPI
+CalculateCheckSum8 (
+  IN CONST UINT8  *Buffer,
+  IN UINTN        Length
+  )
+{
+  return (UINT8)(0x100 - CalculateSum8 (Buffer, Length));
+}
+
 UINTN
 EFIAPI
 StrnLenS (

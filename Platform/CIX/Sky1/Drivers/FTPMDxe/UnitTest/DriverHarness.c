@@ -19,6 +19,13 @@ EFI_GUID                     gOpteeFtpmTaGuid;
 EFI_GUID                     gCixFtpmInitProtocolGuid = CIX_FTPM_INIT_PROTOCOL_GUID;
 EFI_GUID                     gEfiEventBeforeExitBootServicesGuid;
 EFI_GUID                     gEfiEventExitBootServicesGuid;
+EFI_GUID                     gEfiAcpiTableProtocolGuid = EFI_ACPI_TABLE_PROTOCOL_GUID;
+EFI_GUID                     gEfiAcpiSdtProtocolGuid   = EFI_ACPI_SDT_PROTOCOL_GUID;
+OPTEE_CLIENT_DIAGNOSTICS     TestClientDiagnostics;
+EFI_STATUS                   TestAcpiLocateResult;
+EFI_STATUS                   TestAcpiInstallResult;
+BOOLEAN                      TestAcpiCopyHidden;
+UINTN                        TestAcpiUninstalls;
 STATIC EFI_SYSTEM_TABLE      mSystemTable;
 EFI_SYSTEM_TABLE             *gST = &mSystemTable;
 STATIC EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL mConOut;
@@ -70,6 +77,16 @@ STATIC EFI_EVENT_NOTIFY  mEbsCallback;
 STATIC EFI_EVENT_NOTIFY  mBeforeEbsCallback;
 STATIC BOOLEAN           mBeforeEbsSignaled;
 
+/** From BeforeExitBootServices on, variable and protocol services are off limits. **/
+STATIC
+BOOLEAN
+InEbsPath (
+  VOID
+  )
+{
+  return TestAtEbs || mBeforeEbsSignaled;
+}
+
 VOID
 TestRequire (
   BOOLEAN  Condition
@@ -105,7 +122,7 @@ MockSetVariable (
   VOID      *Data
   )
 {
-  TestRequire (!TestAtEbs);
+  TestRequire (!InEbsPath ());
   TestRequire (Attributes == (EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS));
   TestRequire (Size != 0 && Size < 256);
   TestRequire (memcmp (Name, FTPM_STATUS_VARIABLE, sizeof (FTPM_STATUS_VARIABLE)) == 0);
@@ -203,6 +220,128 @@ OpteeClientApiInitialize (
 {
   TestRequire (!TestAtEbs);
   return TestClientResult;
+}
+
+//
+// AcpiTableDxe stand-in: one unrelated table, then the private copy of the
+// installed one, which is what the OS reads.
+//
+STATIC union {
+  UINT64    Align;
+  UINT8     Bytes[1024];
+} mAcpiCopy;
+STATIC BOOLEAN                      mAcpiInstalled;
+STATIC EFI_ACPI_DESCRIPTION_HEADER  mOtherTable;
+
+STATIC EFI_STATUS EFIAPI
+MockInstallAcpiTable (
+  EFI_ACPI_TABLE_PROTOCOL  *This,
+  VOID                     *Buffer,
+  UINTN                    Size,
+  UINTN                    *Key
+  )
+{
+  TestRequire (!InEbsPath () && !mAcpiInstalled && Size <= sizeof (mAcpiCopy.Bytes));
+  TestRequire (Size == ((EFI_ACPI_DESCRIPTION_HEADER *)Buffer)->Length);
+  if (EFI_ERROR (TestAcpiInstallResult)) {
+    return TestAcpiInstallResult;
+  }
+
+  memset (mAcpiCopy.Bytes, 0xEE, sizeof (mAcpiCopy.Bytes));
+  memcpy (mAcpiCopy.Bytes, Buffer, Size);
+  mAcpiInstalled = TRUE;
+  *Key           = 0x55;
+  return EFI_SUCCESS;
+}
+
+STATIC EFI_STATUS EFIAPI
+MockUninstallAcpiTable (
+  EFI_ACPI_TABLE_PROTOCOL  *This,
+  UINTN                    Key
+  )
+{
+  TestRequire (!InEbsPath () && mAcpiInstalled && Key == 0x55);
+  mAcpiInstalled = FALSE;
+  TestAcpiUninstalls++;
+  return EFI_SUCCESS;
+}
+
+STATIC EFI_STATUS EFIAPI
+MockGetAcpiTable (
+  UINTN                   Index,
+  EFI_ACPI_SDT_HEADER     **Table,
+  EFI_ACPI_TABLE_VERSION  *Version,
+  UINTN                   *Key
+  )
+{
+  TestRequire (!InEbsPath ());
+  *Version = EFI_ACPI_TABLE_VERSION_2_0;
+  if (Index == 0) {
+    *Table = (EFI_ACPI_SDT_HEADER *)&mOtherTable;
+    *Key   = 1;
+    return EFI_SUCCESS;
+  }
+
+  if ((Index == 1) && mAcpiInstalled && !TestAcpiCopyHidden) {
+    *Table = (EFI_ACPI_SDT_HEADER *)mAcpiCopy.Bytes;
+    *Key   = 0x55;
+    return EFI_SUCCESS;
+  }
+
+  return EFI_NOT_FOUND;
+}
+
+STATIC EFI_ACPI_TABLE_PROTOCOL  mAcpiTable = { MockInstallAcpiTable, MockUninstallAcpiTable };
+STATIC EFI_ACPI_SDT_PROTOCOL    mAcpiSdt   = { EFI_ACPI_TABLE_VERSION_2_0, MockGetAcpiTable };
+
+STATIC EFI_STATUS EFIAPI
+MockLocateProtocol (
+  EFI_GUID  *Guid,
+  VOID      *Registration,
+  VOID      **Interface
+  )
+{
+  TestRequire (!InEbsPath ());
+  if (EFI_ERROR (TestAcpiLocateResult)) {
+    return TestAcpiLocateResult;
+  }
+
+  TestRequire (Guid == &gEfiAcpiTableProtocolGuid || Guid == &gEfiAcpiSdtProtocolGuid);
+  *Interface = (Guid == &gEfiAcpiTableProtocolGuid) ? (VOID *)&mAcpiTable : (VOID *)&mAcpiSdt;
+  return EFI_SUCCESS;
+}
+
+CONST CHAR8 *
+TestAcpiStatusText (
+  VOID
+  )
+{
+  EFI_ACPI_DESCRIPTION_HEADER  *Header = (EFI_ACPI_DESCRIPTION_HEADER *)mAcpiCopy.Bytes;
+  CHAR8                        *Text;
+  UINTN                        Size;
+  UINTN                        Length;
+
+  if (!mAcpiInstalled) {
+    return NULL;
+  }
+
+  // What the OS validates: signature, length, checksum, NUL padding.
+  TestRequire (Header->Signature == SIGNATURE_32 ('O', 'E', 'M', 'F'));
+  TestRequire (Header->Length > sizeof (*Header) && Header->Length <= sizeof (mAcpiCopy.Bytes));
+  TestRequire (CalculateSum8 (mAcpiCopy.Bytes, Header->Length) == 0);
+  Text   = (CHAR8 *)(Header + 1);
+  Size   = Header->Length - sizeof (*Header);
+  Length = strnlen (Text, Size);
+  TestRequire (Length < Size && IsZeroBuffer (Text + Length, Size - Length));
+  return Text;
+}
+
+VOID
+OpteeClientGetDiagnostics (
+  OPTEE_CLIENT_DIAGNOSTICS  *Diagnostics
+  )
+{
+  *Diagnostics = TestClientDiagnostics;
 }
 
 TEEC_Result
@@ -457,6 +596,20 @@ TestReset (
   mBootServices.CloseEvent                        = MockCloseEvent;
   mBootServices.InstallMultipleProtocolInterfaces = MockInstall;
   mRuntimeServices.SetVariable                    = MockSetVariable;
+  mBootServices.LocateProtocol                    = MockLocateProtocol;
+  mAcpiStatus                  = NULL;
+  mAcpiStatusAttempted         = FALSE;
+  mAcpiStatusBusy              = FALSE;
+  mAcpiStatusDirty             = FALSE;
+  mStage                       = "rtb";
+  mCloses                      = 0;
+  mCloseResult                 = 0;
+  mAcpiInstalled               = FALSE;
+  memset (&TestClientDiagnostics, 0, sizeof (TestClientDiagnostics));
+  TestAcpiLocateResult         = EFI_SUCCESS;
+  TestAcpiInstallResult        = EFI_SUCCESS;
+  TestAcpiCopyHidden           = FALSE;
+  TestAcpiUninstalls           = 0;
   mReadyCallback = NULL;
   TestSerial[0] = 0;
   TestConsoleWrites = 0;

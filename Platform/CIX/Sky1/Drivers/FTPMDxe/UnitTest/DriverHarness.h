@@ -12,6 +12,7 @@
 #include <Library/tee_client_api.h>
 #include <Library/BaseMemoryLib.h>
 #include <Protocol/FTPMInitProtocol.h>
+#include "../../../Library/OpteeClientApiLib/OpteeClientDiagnostics.h"
 
 #define TEST_TPM_MAX  0x1000
 
@@ -50,6 +51,17 @@ extern EFI_STATUS          TestCapResult;
 extern TEEC_Result         TestCapDiscoveryResult;
 extern BOOLEAN             TestCapMalformedFrame;
 extern UINTN               TestCapFailPcr;
+extern OPTEE_CLIENT_DIAGNOSTICS  TestClientDiagnostics;
+extern EFI_STATUS          TestAcpiLocateResult;
+extern EFI_STATUS          TestAcpiInstallResult;
+extern BOOLEAN             TestAcpiCopyHidden;
+extern UINTN               TestAcpiUninstalls;
+
+/** The installed OEMF text after OS-side checks, or NULL if absent. **/
+CONST CHAR8 *
+TestAcpiStatusText (
+  VOID
+  );
 
 BOOLEAN
 TestPrivateReady (
