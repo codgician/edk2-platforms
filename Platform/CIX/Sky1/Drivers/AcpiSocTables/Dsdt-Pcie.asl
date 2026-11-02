@@ -9,6 +9,36 @@
 /*
   See ACPI 6.1 Spec, 6.2.11, PCI Firmware Spec 3.0, 4.5
 */
+#define PCIE_ECAM_BASE  0x20000000
+
+/* Read the configuration dword at ECAM address Arg0 */
+Method (PCRD, 1, Serialized) {
+  OperationRegion (PCFG, SystemMemory, Arg0, 4)
+  Field (PCFG, DWordAcc, NoLock, Preserve) {
+    PCDW, 32
+  }
+  Return (PCDW)
+}
+
+/*
+  Return One if the root port (device 0, function 0) on bus Arg0 implements
+  the LTR mechanism: PCI Express capability, Device Capabilities 2 bit 11.
+*/
+Method (PLTR, 1, Serialized) {
+  Local0 = PCIE_ECAM_BASE + (Arg0 << 20)
+  Local1 = PCRD (Local0 + 0x34) & 0xFC
+  Local2 = 48 /* at most 48 capabilities fit in the 192 bytes after the header */
+  While ((Local1 != 0) && (Local2 != 0)) {
+    Local3 = PCRD (Local0 + Local1)
+    If ((Local3 & 0xFF) == 0x10) {
+      Return ((PCRD (Local0 + Local1 + 0x24) >> 11) & One)
+    }
+    Local1 = (Local3 >> 8) & 0xFC
+    Local2--
+  }
+  Return (Zero)
+}
+
 #define PCI_OSC_SUPPORT() \
   Name(SUPP, Zero) /* PCI _OSC Support Field value */ \
   Name(CTRL, Zero) /* PCI _OSC Control Field value */ \
@@ -29,9 +59,18 @@
         And(CTRL,0x1E,CTRL) \
       }\
       \
-      /* Do not allow native PME, AER */ \
-      /* Never allow SHPC (no SHPC controller in this system)*/ \
-      And(CTRL,0x10,CTRL) \
+      /* Grant the PCIe capability structure, and LTR if the root port */ \
+      /* implements it. Never native hot plug, SHPC or DPC: the slots are */ \
+      /* not hot-pluggable and the root ports have no DPC capability. */ \
+      /* Do not allow native PME, AER: the root ports signal those events */ \
+      /* on dedicated error/local SPIs, not through an interrupt the */ \
+      /* pcieport services can use (their MSI-X table sits in an */ \
+      /* unimplemented BAR0). */ \
+      If (PLTR (_BBN)) { \
+        And(CTRL,0x30,CTRL) \
+      } Else { \
+        And(CTRL,0x10,CTRL) \
+      } \
       If(LNotEqual(Arg1,One)) { /* Unknown revision */ \
         Or(CDW1,0x08,CDW1) \
       } \
