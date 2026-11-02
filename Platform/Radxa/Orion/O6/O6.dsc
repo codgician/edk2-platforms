@@ -123,11 +123,8 @@
   DEFINE NETWORK_HTTP_ENABLE            = TRUE
   DEFINE NETWORK_ALLOW_HTTP_CONNECTIONS = TRUE
   DEFINE NETWORK_ISCSI_ENABLE           = FALSE
-  # NetworkDefines.dsc.inc is included outside [Defines], so its defaults
-  # are not visible to the FDF; spell out the ones the FV depends on.
-  DEFINE NETWORK_VLAN_ENABLE            = TRUE
-  DEFINE NETWORK_PXE_BOOT_ENABLE        = TRUE
 !endif
+!include NetworkPkg/NetworkDefines.dsc.inc
 
 #ACPI Boot
   DEFINE ACPI_ENABLE                = TRUE
@@ -145,7 +142,6 @@
 !include Platform/CIX/Sky1/Sky1Common.dsc.inc
 !include Platform/Radxa/RadxaCommon.dsc.inc
 !include Platform/Radxa/Platforms/CIX/Sky1/Sky1Common.dsc.inc
-!include NetworkPkg/NetworkDefines.dsc.inc
 
 ################################################################################
 #
