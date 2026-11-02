@@ -119,8 +119,8 @@ ConstructRootBridge (
     Bridge->Io.Base  = Appeture->IoBase;
     Bridge->Io.Limit = Appeture->IoBase + Appeture->IoSize - 1;
   } else {
-    Bridge->Io.Base  = 0;
-    Bridge->Io.Limit = 0xFFFF;
+    Bridge->Io.Base  = MAX_UINT64;
+    Bridge->Io.Limit = 0;
   }
 
   if (Appeture->Mem) {
