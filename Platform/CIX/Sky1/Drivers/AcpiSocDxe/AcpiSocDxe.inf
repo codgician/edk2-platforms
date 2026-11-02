@@ -65,6 +65,9 @@
   gPlatformSetupVariableGuid
   gPlatformAcpiConfigProtocolGuid
 
+[Pcd]
+  gCixTokenSpaceGuid.PcdPcieRb0Mem64Size
+
 [FixedPcd]
   gArmPlatformTokenSpaceGuid.PcdSerialDbgRegisterBase
   gArmPlatformTokenSpaceGuid.PcdSerialDbgInterrupt

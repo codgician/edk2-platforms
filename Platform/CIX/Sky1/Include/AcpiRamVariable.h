@@ -86,9 +86,11 @@
 #define ARV_PCIE_RP_02_ASPM_OFFSET          0x4A
 #define ARV_PCIE_RP_03_ASPM_OFFSET          0x4B
 #define ARV_PCIE_RP_04_ASPM_OFFSET          0x4C
+// log2 of RB0's 64-bit window size; 0 keeps the stock descriptor.
+#define ARV_PCIE_RP_00_MEM64_SHIFT_OFFSET   0x4D
 
 //
-#define ARV_VARIABLE_TABLE_TOTAL_SIZE  0x4D
+#define ARV_VARIABLE_TABLE_TOTAL_SIZE  0x4E
 
 #define ARV_I2C_FREQ_UNIT_HZ   10000
 

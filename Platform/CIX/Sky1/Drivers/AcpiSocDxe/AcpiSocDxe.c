@@ -9,6 +9,7 @@
 #include <PlatformSetupVar.h>
 #include <AcpiRamVariable.h>
 #include <Library/BaseLib.h>
+#include <Library/PcdLib.h>
 #include <Library/SerialPortLib.h>
 #include <Library/PL011UartClockLib.h>
 #include <Library/PL011UartLib.h>
@@ -32,7 +33,7 @@ EFI_ACPI_TABLE_PROTOCOL         *AcpiTableProtocol = NULL;
 static EFI_ACPI_SDT_PROTOCOL    *mAcpiSdt          = NULL;
 static EFI_ACPI_TABLE_PROTOCOL  *mAcpiTable        = NULL;
 
-ACPI_FUNCTION_ON_READ_TO_BOOT_HOOK  mAcpiFunctionOReadyToBootHook[] = { InstallAcpiOnReadyToBoot, SpcrDisable, ConfigureIortForSmmu, UpdateAcpiGpnv, UpdateGTDTFlags, NULL };
+ACPI_FUNCTION_ON_READ_TO_BOOT_HOOK  mAcpiFunctionOReadyToBootHook[] = { InstallAcpiOnReadyToBoot, SpcrDisable, ConfigureIortForSmmu, UpdateAcpiGpnv, UpdatePcieMem64Window, UpdateGTDTFlags, NULL };
 
 EFI_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_HEADER  McfgHeader = {
   {
@@ -436,6 +437,34 @@ UpdateAcpiGpnv (
   }
 
   return Status;
+}
+
+/**
+  Publish RB0's 64-bit window size to the DSDT through ACPI RAM, as log2 of
+  the size; 0 leaves the static stock descriptor in PCI0._CRS.
+
+  PciHostBridgeLib decides the size once, before PCI enumeration; the
+  MCFG install above has already gone through it as well.
+**/
+EFI_STATUS
+EFIAPI
+UpdatePcieMem64Window (
+  VOID
+  )
+{
+  UINT64  Size;
+  UINT8   Shift;
+
+  Size  = PcdGet64 (PcdPcieRb0Mem64Size);
+  Shift = 0;
+  if ((Size != 0) && ((Size & (Size - 1)) == 0)) {
+    Shift = (UINT8)HighBitSet64 (Size);
+  }
+
+  ((UINT8 *)pPlatformAcpiConfigProtocol->pAcpiRamAddress)[ARV_PCIE_RP_00_MEM64_SHIFT_OFFSET] = Shift;
+  DEBUG ((DEBUG_INFO, "RB0 64-bit window size 0x%lx (shift %u)\n", Size, Shift));
+
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS

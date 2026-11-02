@@ -104,9 +104,21 @@ Device (PCI0)
         0x1800000000,             // Min Base Address
         0x1BFFFFFFFF,             // Max Base Address
         0x00000000,               // Translate
-        0x400000000               // Length 16G
+        0x400000000,              // Length 16G
+        ,, M64W
       )
     })                            // Name(RBUF)
+
+    // The firmware may grow this window upward from its fixed base; it
+    // publishes the size it gave the host bridge as log2 in ACPI RAM.
+    CreateQWordField (RBUF, M64W._MIN, M64N)
+    CreateQWordField (RBUF, M64W._MAX, M64X)
+    CreateQWordField (RBUF, M64W._LEN, M64L)
+    Local0 = \_SB.GETV (ARV_PCIE_RP_00_MEM64_SHIFT_OFFSET)
+    If ((Local0 >= 34) && (Local0 <= 36)) {
+      M64L = 1 << Local0
+      M64X = M64N + M64L - 1
+    }
     Return (RBUF)
   }                               // Method(_CRS), this method return RBUF!
 

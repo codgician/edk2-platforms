@@ -85,6 +85,12 @@ UpdateGTDTFlags (
   VOID
   );
 
+EFI_STATUS
+EFIAPI
+UpdatePcieMem64Window (
+  VOID
+  );
+
 typedef EFI_STATUS (*ACPI_FUNCTION_ON_READ_TO_BOOT_HOOK)(
   void
   );
