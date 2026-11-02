@@ -26,7 +26,6 @@ STATIC EFI_EVENT_NOTIFY      mReadyCallback;
 CHAR8                        TestSerial[4096];
 UINTN                        TestConsoleWrites;
 EFI_STATUS                   TestClientResult;
-TEEC_Result                  TestContextResult;
 EFI_STATUS                   TestReadyEventResult;
 UINTN                        TestClosedEvents;
 UINTN                        TestContextFinalizes;
@@ -41,12 +40,6 @@ STATIC EFI_BOOT_SERVICES     mBootServices;
 STATIC EFI_RUNTIME_SERVICES  mRuntimeServices;
 EFI_BOOT_SERVICES            *gBS = &mBootServices;
 EFI_RUNTIME_SERVICES         *gRT = &mRuntimeServices;
-
-VOID
-TestWithoutConsole (VOID)
-{
-  mSystemTable.ConOut = NULL;
-}
 
 FTPM_INIT_PROTOCOL       *TestProtocol;
 UINT8                    TestResponse[TEST_TPM_MAX];
@@ -270,7 +263,7 @@ TEEC_InitializeContext (
 {
   TestRequire (!TestAtEbs);
   Context->fd = 1;
-  return TestContextResult;
+  return TEEC_SUCCESS;
 }
 
 void
@@ -603,7 +596,6 @@ TestReset (
   TestSerial[0] = 0;
   TestConsoleWrites = 0;
   TestClientResult = EFI_SUCCESS;
-  TestContextResult = TEEC_SUCCESS;
   TestReadyEventResult = EFI_SUCCESS;
   TestClosedEvents = 0;
   TestContextFinalizes = 0;

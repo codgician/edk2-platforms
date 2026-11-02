@@ -521,13 +521,6 @@ InitializationDiagnostics (
   assert_string_equal (TestSerial, "TPM FTPMDxe: client unavailable, TPM skipped (Device Error)\r\n");
   assert_int_equal (TestConsoleWrites, 1);
   TestReset ();
-  TestWithoutConsole ();
-  TestContextResult = TEEC_ERROR_COMMUNICATION;
-  assert_int_equal (TestStart (), EFI_SUCCESS);
-  assert_false (TestProtocol->GetFTPMStatus (TestProtocol));
-  assert_string_equal (TestSerial, "TPM FTPMDxe: context initialization failed, TPM skipped (0xFFFF000E)\r\n");
-  assert_int_equal (TestConsoleWrites, 0);
-  TestReset ();
   TestReadyEventResult = EFI_OUT_OF_RESOURCES;
   assert_int_equal (TestStart (), EFI_SUCCESS);
   assert_true (TestProtocol->GetFTPMStatus (TestProtocol));

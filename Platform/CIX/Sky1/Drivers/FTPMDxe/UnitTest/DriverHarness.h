@@ -45,7 +45,6 @@ extern UINTN               TestSavedResponseSize;
 extern CHAR8               TestSerial[4096];
 extern UINTN               TestConsoleWrites;
 extern EFI_STATUS          TestClientResult;
-extern TEEC_Result         TestContextResult;
 extern EFI_STATUS          TestReadyEventResult;
 extern UINTN               TestClosedEvents;
 extern UINTN               TestContextFinalizes;
@@ -62,11 +61,6 @@ TestPrivateReady (
 
 VOID
 TestCapStoppedEntry (
-  VOID
-  );
-
-VOID
-TestWithoutConsole (
   VOID
   );
 

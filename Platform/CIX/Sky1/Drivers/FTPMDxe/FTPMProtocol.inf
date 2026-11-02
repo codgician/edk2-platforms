@@ -28,7 +28,6 @@
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
-  DebugLib
   OpteeClientApiLib
   PrintLib
   SerialPortLib

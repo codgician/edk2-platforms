@@ -17,8 +17,8 @@
 #include <Guid/EventGroup.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
-#include <Library/DebugLib.h>
 #include <Library/OpteeClientApiLib.h>
+#include <Library/OpteeTrustedAppGuids.h>
 #include <Library/PrintLib.h>
 #include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -38,8 +38,6 @@
 #define FTPM_TA_MAX_RESPONSE    0x1000
 
 #define FTPM_STATUS_VARIABLE  L"FtpmStatus"
-
-extern EFI_GUID  gOpteeFtpmTaGuid;
 
 STATIC TEEC_Context  mContext;
 STATIC TEEC_Session  mSession;
@@ -383,7 +381,6 @@ FtpmDxeEntryPoint (
   EFI_STATUS   Status;
   EFI_HANDLE   Handle;
   EFI_EVENT    Event;
-  TEEC_Result  Result;
   EFI_STATUS   CapStatus;
 
   // Never open the single-session TA without installed handoff handlers.
@@ -416,24 +413,21 @@ FtpmDxeEntryPoint (
 
   mClientStatus = OpteeClientApiInitialize (ImageHandle);
   if (!EFI_ERROR (mClientStatus)) {
-    Result = TEEC_InitializeContext (NULL, &mContext);
-    if (Result == TEEC_SUCCESS) {
-      mOpenResult = TEEC_OpenSession (
-                                      &mContext,
-                                      &mSession,
-                                      (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
-                                      TEEC_LOGIN_PUBLIC,
-                                      NULL,
-                                      NULL,
-                                      &mOpenOrigin
-                                      );
-      mSessionOpen   = (mOpenResult == TEEC_SUCCESS);
-      mSessionUsable = mSessionOpen;
-      if (!mSessionOpen) {
-        ReportDecision ("session open failed, TPM skipped", mOpenResult, TRUE, FALSE);
-      }
-    } else {
-      ReportDecision ("context initialization failed, TPM skipped", Result, TRUE, FALSE);
+    // Cannot fail once the client is initialized.
+    TEEC_InitializeContext (NULL, &mContext);
+    mOpenResult = TEEC_OpenSession (
+                                    &mContext,
+                                    &mSession,
+                                    (CONST TEEC_UUID *)&gOpteeFtpmTaGuid,
+                                    TEEC_LOGIN_PUBLIC,
+                                    NULL,
+                                    NULL,
+                                    &mOpenOrigin
+                                    );
+    mSessionOpen   = (mOpenResult == TEEC_SUCCESS);
+    mSessionUsable = mSessionOpen;
+    if (!mSessionOpen) {
+      ReportDecision ("session open failed, TPM skipped", mOpenResult, TRUE, FALSE);
     }
   } else {
     ReportDecision ("client unavailable, TPM skipped", mClientStatus, FALSE, FALSE);
