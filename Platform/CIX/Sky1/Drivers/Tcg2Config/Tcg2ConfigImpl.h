@@ -17,6 +17,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <Protocol/HiiConfigAccess.h>
 #include <Protocol/HiiConfigRouting.h>
 #include <Protocol/Tcg2Protocol.h>
+#include <Protocol/VariableLock.h>
 
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
@@ -71,6 +72,8 @@ extern TCG2_CONFIG_PRIVATE_DATA  *mTcg2ConfigPrivateDate;
 #define TCG2_CONFIG_PRIVATE_DATA_SIGNATURE  SIGNATURE_32 ('T', 'r', 'E', 'D')
 #define TCG2_CONFIG_PRIVATE_DATA_FROM_THIS(a)  CR (a, TCG2_CONFIG_PRIVATE_DATA, ConfigAccess, TCG2_CONFIG_PRIVATE_DATA_SIGNATURE)
 
+#define TPM_HID_PNP_SIZE   8
+#define TPM_HID_ACPI_SIZE  9
 
 /**
   This function publish the TCG2 configuration Form for TPM device.

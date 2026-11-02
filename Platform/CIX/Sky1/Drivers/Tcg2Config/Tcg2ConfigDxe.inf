@@ -1,9 +1,8 @@
 ## @file
-#  Fixed fTPM status and confirmed physical-presence request setup.
+#  TPM device configuration for TPM 2.0
 #
-#  Backend, TPM version, PTP interface and PPI/ACPI versions are not writable
-#  setup selections. Only supported PP requests are queued for fresh console
-#  confirmation; legacy security configuration variables are never read.
+#  By this module, user may select TPM device, clear TPM state, etc.
+#  NOTE: This module is only for reference only, each platform should have its own setup page.
 #
 # Copyright (c) 2015 - 2018, Intel Corporation. All rights reserved.<BR>
 # Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
@@ -57,24 +56,36 @@
   Tpm2DeviceLib
   Tpm2CommandLib
   Tcg2PhysicalPresenceLib
+  IoLib
   DevicePathLib
   UefiBootManagerLib
 
 [Guids]
   ## PRODUCES           ## HII
-  ## PRODUCES ## Variable:L"TCG2_CONFIGURATION_INFO"
+  ## SOMETIMES_PRODUCES ## Variable:L"TCG2_CONFIGURATION"
+  ## SOMETIMES_CONSUMES ## Variable:L"TCG2_CONFIGURATION"
+  ## PRODUCES           ## Variable:L"TCG2_DEVICE_DETECTION"
+  ## SOMETIMES_CONSUMES ## Variable:L"TCG2_DEVICE_DETECTION"
   gTcg2ConfigFormSetGuid
 
 [Protocols]
   gEfiHiiConfigAccessProtocolGuid               ## PRODUCES
   gEfiDevicePathProtocolGuid                    ## PRODUCES
+  gEdkiiVariableLockProtocolGuid                ## SOMETIMES_CONSUMES
   gEfiTcg2ProtocolGuid                          ## CONSUMES
 
 [Pcd]
   gEfiSecurityPkgTokenSpaceGuid.PcdTpmInstanceGuid            ## CONSUMES
   gEfiSecurityPkgTokenSpaceGuid.PcdTcg2HashAlgorithmBitmap    ## CONSUMES
   gCixPlatformTokenSpaceGuid.PcdTcgPhysicalPresenceInterfaceVer  ## CONSUMES
+  gCixPlatformTokenSpaceGuid.PcdActiveTpmInterfaceType
+  gCixPlatformTokenSpaceGuid.PcdTpm2InterfacePtpFifoSupported
+  gCixPlatformTokenSpaceGuid.PcdTpm2InterfacePtpCrbSupported
+  gCixPlatformTokenSpaceGuid.PcdTpm2InterfacePtpTisSupported
+  gCixPlatformTokenSpaceGuid.PcdDefaultTpmDeviceSelect
   gCixPlatformTokenSpaceGuid.PcdTpm2AcpiTableRev
+  gCixPlatformTokenSpaceGuid.PcdDTPMSupport
+  gCixPlatformTokenSpaceGuid.PcdFTPMSupport
 
 
 [Depex]
