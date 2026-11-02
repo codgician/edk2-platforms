@@ -11,11 +11,12 @@ log_all_hashable_subset (
   )
 {
   PpReset (TCG2_PHYSICAL_PRESENCE_LOG_ALL_DIGESTS, 0);
+  mPp.Supported = 0x1F;
   assert_true (Tcg2PhysicalPresenceLibNeedUserConfirm ());
   mPp.Accept = TRUE;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 1);
-  assert_int_equal (mPp.Trace[7], 7);
+  assert_int_equal (mPp.Trace[7], 0xF);
   assert_int_equal (mPp.Resets, 1);
 }
 
@@ -158,7 +159,7 @@ operations (
         }
 
         if ((Op == 23) || (Op == 33)) {
-          assert_int_equal (mPp.Trace[7], Op == 23 ? 2 : 7);
+          assert_int_equal (mPp.Trace[7], Op == 23 ? 2 : 0xF);
         }
 
         assert_int_equal (mPp.Resets, 1);
@@ -170,7 +171,7 @@ operations (
   }
 
   PpReset (33, 0);
-  mPp.Active = 7;
+  mPp.Active = 0xF;
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.TraceCount, 0);
   assert_int_equal (mPp.KeyReads, 0);
@@ -377,7 +378,7 @@ explicit_unhashable_banks (
   void  **State
   )
 {
-  UINT32  Masks[] = { 8, 9, 15, 16, 31 };
+  UINT32  Masks[] = { 16, 17, 24, 31 };
   UINTN   Index;
 
   for (Index = 0; Index < ARRAY_SIZE (Masks); ++Index) {
@@ -444,8 +445,8 @@ allocation_policy_boundaries (
   }
 
   PpReset (33, 0);
-  mPp.Supported = 8;
-  mPp.Active    = 8;
+  mPp.Supported = 0x10;
+  mPp.Active    = 0x10;
   mPp.Accept    = TRUE;
   assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
@@ -462,7 +463,7 @@ allocation_policy_boundaries (
   assert_int_equal (mPp.TraceCount, 0);
 
   PpReset (33, 0);
-  mPp.Active = 7;
+  mPp.Active = 0xF;
   assert_false (Tcg2PhysicalPresenceLibNeedUserConfirm ());
   Tcg2PhysicalPresenceLibProcessRequest (NULL);
   assert_int_equal (mPp.KeyReads, 0);

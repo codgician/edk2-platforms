@@ -18,13 +18,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
   TestPcdTpm2HashMask = Data[6];
   TestPrivate.PCRBanksDesired = Data[7];
   DesiredBefore = TestPrivate.PCRBanksDesired;
-  Allowed = 7U & Data[4] & Data[5] & Data[6];
+  Allowed = 0xFU & Data[4] & Data[5] & Data[6];
   ZeroMem(&Info, sizeof(Info));
   for (UINTN Index = 0; Index < ARRAY_SIZE(Algorithms); Index++) { SetConfigInfo(&Info, Algorithms[Index]); }
   if ((Info.Sha1Supported != ((Allowed & 1U) != 0)) ||
       (Info.Sha256Supported != ((Allowed & 2U) != 0)) ||
       (Info.Sha384Supported != ((Allowed & 4U) != 0)) ||
-      Info.Sha512Supported || Info.Sm3Supported) { abort(); }
+      (Info.Sha512Supported != ((Allowed & 8U) != 0)) ||
+      Info.Sm3Supported) { abort(); }
   if ((Data[3] & 1) != 0) {
     if (SaveTcg2PpRequest(TCG2_PHYSICAL_PRESENCE_SET_PCR_BANKS) != EFI_SUCCESS) { abort(); }
     if (SubmitCalls != 0) { abort(); }

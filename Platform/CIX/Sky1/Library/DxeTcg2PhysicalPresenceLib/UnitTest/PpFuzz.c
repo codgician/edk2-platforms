@@ -69,7 +69,7 @@ LLVMFuzzerTestOneInput (
   }
 
   Operation = mPp.Request.PPRequest;
-  Hashable  = 7U & mPpHashBitmap & mPpHashMask;
+  Hashable  = 0xFU & mPpHashBitmap & mPpHashMask;
   Desired   = Operation == 33 ? (mPp.Supported & Hashable) : mPp.Request.PPRequestParameter;
   AllocationValid = !EFI_ERROR (mPp.CapabilityStatus) && mPp.Supported != 0 &&
                     (mPp.Supported & ~31U) == 0 && mPp.Active != 0 &&

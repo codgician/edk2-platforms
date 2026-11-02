@@ -12,10 +12,10 @@
 
 /** Return the linked hash engines allowed by both measurement PCDs.
 
-  Sky1Common.dsc.inc links SHA1, SHA256 and SHA384 into Tcg2Dxe. The ceiling
-  remains necessary if the router bitmap has not yet been initialized, or if
-  another module registers an engine that Tcg2Dxe cannot use. Keep this ceiling
-  synchronized with that component's hash-instance library bindings.
+  Sky1Common.dsc.inc links SHA1, SHA256, SHA384 and SHA512 into Tcg2Dxe. The
+  ceiling remains necessary if the router bitmap has not yet been initialized,
+  or if another module registers an engine that Tcg2Dxe cannot use. Keep this
+  ceiling synchronized with that component's hash-instance library bindings.
 
   @return  Firmware-measurable PCR bank bitmap (possibly empty).
 **/
@@ -26,7 +26,7 @@ PpHashableBanks (
   )
 {
   return (EFI_TCG2_BOOT_HASH_ALG_SHA1 | EFI_TCG2_BOOT_HASH_ALG_SHA256 |
-          EFI_TCG2_BOOT_HASH_ALG_SHA384) &
+          EFI_TCG2_BOOT_HASH_ALG_SHA384 | EFI_TCG2_BOOT_HASH_ALG_SHA512) &
          PcdGet32 (PcdTcg2HashAlgorithmBitmap) & PcdGet32 (PcdTpm2HashMask);
 }
 

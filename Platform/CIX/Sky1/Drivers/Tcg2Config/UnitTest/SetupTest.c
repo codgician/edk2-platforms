@@ -68,7 +68,7 @@ static void RejectInterfaceMutation(void **State) {
 }
 static void RejectUnhashableNumericBanks(void **State) {
   static const UINT32 Capabilities[] = {0xF, 0x1F};
-  static const UINT32 Requests[] = {8, 0xA, 0xF, 0x10, 0x12, 0x1F};
+  static const UINT32 Requests[] = {0x10, 0x12, 0x1F};
   EFI_IFR_TYPE_VALUE Value = {0};
   for (UINTN Cap = 0; Cap < ARRAY_SIZE(Capabilities); Cap++) {
     for (UINTN Index = 0; Index < ARRAY_SIZE(Requests); Index++) {
@@ -87,22 +87,20 @@ static void RejectUnhashableNumericBanks(void **State) {
 static void RejectUnhashableCheckboxBanks(void **State) {
   EFI_IFR_TYPE_VALUE Value = {0};
   for (UINT32 Capability = 0xF; Capability <= 0x1F; Capability += 0x10) {
-    for (UINT16 Index = 3; Index <= 4; Index++) {
-      ResetSetup();
-      TestPrivate.ProtocolCapability.HashAlgorithmBitmap = Capability;
-      Value.b = TRUE;
-      assert_int_equal(Callback(KEY_TPM2_PCR_BANKS_REQUEST_0 + Index, EFI_IFR_TYPE_BOOLEAN, &Value), EFI_INVALID_PARAMETER);
-      assert_int_equal(SubmitCalls, 0);
-      assert_int_equal(TestPrivate.PCRBanksDesired, 2);
-      assert_int_equal(mCurrentPpRequest, 0);
-    }
+    ResetSetup();
+    TestPrivate.ProtocolCapability.HashAlgorithmBitmap = Capability;
+    Value.b = TRUE;
+    assert_int_equal(Callback(KEY_TPM2_PCR_BANKS_REQUEST_4, EFI_IFR_TYPE_BOOLEAN, &Value), EFI_INVALID_PARAMETER);
+    assert_int_equal(SubmitCalls, 0);
+    assert_int_equal(TestPrivate.PCRBanksDesired, 2);
+    assert_int_equal(mCurrentPpRequest, 0);
   }
 }
 static void HonorBothPcdMasksAndRejectEmptyAllocation(void **State) {
   EFI_IFR_TYPE_VALUE Value = {0};
   for (UINTN Pcd = 0; Pcd < 2; Pcd++) {
-    for (UINT32 Mask = 0; Mask <= 7; Mask++) {
-      for (UINT32 Bank = 0; Bank < 3; Bank++) {
+    for (UINT32 Mask = 0; Mask <= 0xF; Mask++) {
+      for (UINT32 Bank = 0; Bank < 4; Bank++) {
         ResetSetup();
         TestPrivate.ProtocolCapability.HashAlgorithmBitmap = 0x1F;
         TestPrivate.PCRBanksDesired = 0;
@@ -144,11 +142,11 @@ static void VisibilityUsesHashableSupportedBanks(void **State) {
         else { TestPcdTpm2HashMask = Mask; }
         ZeroMem(&Info, sizeof(Info));
         for (UINTN Index = 0; Index < ARRAY_SIZE(Algorithms); Index++) { SetConfigInfo(&Info, Algorithms[Index]); }
-        UINT32 Expected = Mask & Capability & 7U;
+        UINT32 Expected = Mask & Capability & 0xFU;
         assert_int_equal(Info.Sha1Supported, (Expected & 1U) != 0);
         assert_int_equal(Info.Sha256Supported, (Expected & 2U) != 0);
         assert_int_equal(Info.Sha384Supported, (Expected & 4U) != 0);
-        assert_false(Info.Sha512Supported);
+        assert_int_equal(Info.Sha512Supported, (Expected & 8U) != 0);
         assert_false(Info.Sm3Supported);
         assert_int_equal(TestPrivate.ProtocolCapability.HashAlgorithmBitmap, Capability);
         assert_int_equal(TestPrivate.PCRBanksDesired, 2);
@@ -161,13 +159,13 @@ static void PreserveLiveDesiredBanksUntilAccepted(void **State) {
   EFI_IFR_TYPE_VALUE Value = {0};
   ResetSetup();
   TestPrivate.ProtocolCapability.HashAlgorithmBitmap = 0x1F;
-  TestPrivate.PCRBanksDesired = 0xA;
+  TestPrivate.PCRBanksDesired = 0x12;
   Value.b = TRUE;
   assert_int_equal(Callback(KEY_TPM2_PCR_BANKS_REQUEST_0, EFI_IFR_TYPE_BOOLEAN, &Value), EFI_INVALID_PARAMETER);
   assert_int_equal(SubmitCalls, 0);
-  assert_int_equal(TestPrivate.PCRBanksDesired, 0xA);
+  assert_int_equal(TestPrivate.PCRBanksDesired, 0x12);
   Value.b = FALSE;
-  assert_int_equal(Callback(KEY_TPM2_PCR_BANKS_REQUEST_3, EFI_IFR_TYPE_BOOLEAN, &Value), EFI_SUCCESS);
+  assert_int_equal(Callback(KEY_TPM2_PCR_BANKS_REQUEST_4, EFI_IFR_TYPE_BOOLEAN, &Value), EFI_SUCCESS);
   assert_int_equal(SubmitCalls, 1);
   assert_int_equal(SubmitParameter, 2);
   assert_int_equal(TestPrivate.PCRBanksDesired, 2);
