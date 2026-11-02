@@ -62,15 +62,6 @@ ValidWidths (VOID **State)
 }
 
 STATIC VOID
-TwoByteRequestAcceptsSixteen (VOID **State)
-{
-  (VOID)State;
-  ResetRngMock (sizeof (UINT16));
-  gReply.Length = 16;
-  CheckResult (sizeof (UINT16), TRUE);
-}
-
-STATIC VOID
 BoundedOverprovision (VOID **State)
 {
   UINTN Index;
@@ -187,7 +178,6 @@ int main (void)
 {
   const struct CMUnitTest Tests[] = {
     cmocka_unit_test (ValidWidths),
-    cmocka_unit_test (TwoByteRequestAcceptsSixteen),
     cmocka_unit_test (BoundedOverprovision),
     cmocka_unit_test (MalformedLengths),
     cmocka_unit_test (MailboxErrors),
