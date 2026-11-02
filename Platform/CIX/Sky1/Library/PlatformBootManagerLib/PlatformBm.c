@@ -813,7 +813,6 @@ RegisterIsoDebianBootOption (
   FreePool (FilePath);
 }
 
-STATIC BOOLEAN  mTpmBootGateComplete;
 STATIC BOOLEAN  mEndOfDxeSignaled;
 
 /** Signal EndOfDxe once per boot; its handlers assume a single notification. **/
@@ -853,19 +852,7 @@ PlatformTpmStatus (
   }
 }
 
-/** Stop rather than release control with unproven TPM/PCR state. **/
-STATIC
-NORETURN
-VOID
-PlatformTpmBootStop (
-  VOID
-  )
-{
-  for (;;) {
-    CpuDeadLoop ();
-  }
-}
-
+/** Cap PCRs 0-7, or stop rather than release control with unproven PCR state. **/
 STATIC
 VOID
 PlatformTpmCapOrStop (
@@ -877,58 +864,12 @@ PlatformTpmCapOrStop (
   Status = PlatformTpmCapPcrs ();
   if (EFI_ERROR (Status)) {
     PlatformTpmStatus ("PCR cap failed, boot stopped", Status);
-    PlatformTpmBootStop ();
+    for (;;) {
+      CpuDeadLoop ();
+    }
   }
 
   PlatformTpmStatus ("PCRs 0-7 capped, continuing", EFI_SUCCESS);
-  mTpmBootGateComplete = TRUE;
-}
-
-/**
-  Add the hardcoded short-form USB keyboard to ConIn, and the serial console
-  to ConIn, ConOut and ErrOut.
-**/
-STATIC
-VOID
-PlatformRegisterBuiltInConsoles (
-  VOID
-  )
-{
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdDefaultTerminalType) == 4,
-    "PcdDefaultTerminalType must be TTYTERM"
-    );
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdUartDefaultParity) != 0,
-    "PcdUartDefaultParity must be set to an actual value, not 'default'"
-    );
-  STATIC_ASSERT (
-    FixedPcdGet8 (PcdUartDefaultStopBits) != 0,
-    "PcdUartDefaultStopBits must be set to an actual value, not 'default'"
-    );
-
-  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
-
-  EfiBootManagerUpdateConsoleVariable (
-    ConIn,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard,
-    NULL
-    );
-  EfiBootManagerUpdateConsoleVariable (
-    ConIn,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
-  EfiBootManagerUpdateConsoleVariable (
-    ConOut,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
-  EfiBootManagerUpdateConsoleVariable (
-    ErrOut,
-    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
-    NULL
-    );
 }
 
 /**
@@ -946,9 +887,10 @@ PlatformRegisterBuiltInConsoles (
   dispatch DXE drivers on a stalled connection.
 
   ConPlatformDxe admits a connected device only if it matches ConIn or
-  ConOut, so the built-in paths are registered first. Editing those variables
-  from the OS can hide a local console, which leaves the request unconfirmed,
-  but cannot add a console that this function did not connect.
+  ConOut. BeforeConsole adds these built-in paths on every boot, so they are
+  present for any later request. Editing the variables from the OS can hide a
+  local console, which leaves the request unconfirmed, but cannot add a
+  console that this function did not connect.
 **/
 STATIC
 VOID
@@ -961,9 +903,8 @@ PlatformConnectLocalConsoles (
   EFI_HANDLE                Serial;
 
   PlatformSignalEndOfDxe ();
-  PlatformRegisterBuiltInConsoles ();
-  FilterAndProcess (&gEfiGraphicsOutputProtocolGuid, NULL, AddOutput);
 
+  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
   Remaining = (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole;
   Status    = gBS->LocateDevicePath (&gEfiSerialIoProtocolGuid, &Remaining, &Serial);
   if (!EFI_ERROR (Status) && (Remaining == &mSerialConsole.TermType.Header)) {
@@ -984,8 +925,8 @@ PlatformConnectLocalConsoles (
   Process physical presence and protect platform authorization before BDS can
   dispatch deferred images, PCI option ROMs or any load option.
 
-  General PCI discovery stays behind the gate. A request that needs
-  confirmation is shown on every built-in console; see
+  A detected TPM is never treated as absent: failing to query it caps PCRs.
+  A request that needs confirmation is shown on every built-in console; see
   PlatformConnectLocalConsoles.
 **/
 STATIC
@@ -998,36 +939,27 @@ PlatformTpmBootGate (
   EFI_TCG2_PROTOCOL                 *Tcg2;
   EFI_TCG2_BOOT_SERVICE_CAPABILITY  Capability;
 
-  if (mTpmBootGateComplete) {
-    return;
-  }
-
   Status = gBS->LocateProtocol (&gEfiTcg2ProtocolGuid, NULL, (VOID **)&Tcg2);
   if (Status == EFI_NOT_FOUND) {
     // No TPM from the start: there is no TPM-backed secret to release.
     PlatformTpmStatus ("TPM absent, continuing", Status);
-    mTpmBootGateComplete = TRUE;
     return;
   }
 
-  if (EFI_ERROR (Status)) {
-    PlatformTpmStatus ("Tcg2 lookup failed, attempting PCR cap", Status);
-    PlatformTpmCapOrStop ();
-    return;
+  if (!EFI_ERROR (Status)) {
+    ZeroMem (&Capability, sizeof (Capability));
+    Capability.Size = sizeof (Capability);
+    Status          = Tcg2->GetCapability (Tcg2, &Capability);
   }
 
-  ZeroMem (&Capability, sizeof (Capability));
-  Capability.Size = sizeof (Capability);
-  Status = Tcg2->GetCapability (Tcg2, &Capability);
   if (EFI_ERROR (Status)) {
-    PlatformTpmStatus ("Tcg2 capability failed, attempting PCR cap", Status);
+    PlatformTpmStatus ("Tcg2 unavailable, attempting PCR cap", Status);
     PlatformTpmCapOrStop ();
     return;
   }
 
   if (!Capability.TPMPresentFlag) {
     PlatformTpmStatus ("TPM absent, continuing", EFI_NOT_FOUND);
-    mTpmBootGateComplete = TRUE;
     return;
   }
 
@@ -1052,8 +984,6 @@ PlatformTpmBootGate (
   } else {
     PlatformTpmStatus ("platform hierarchy protected", EFI_SUCCESS);
   }
-
-  mTpmBootGateComplete = TRUE;
 }
 
 //
@@ -1128,9 +1058,47 @@ PlatformBootManagerBeforeConsole (
   FilterAndProcess (&gEdkiiNonDiscoverableDeviceProtocolGuid, IsUsbHost, Connect);
 
   //
-  // Add the hardcoded USB keyboard and serial console device paths.
+  // Add the hardcoded short-form USB keyboard device path to ConIn.
   //
-  PlatformRegisterBuiltInConsoles ();
+  EfiBootManagerUpdateConsoleVariable (
+    ConIn,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mUsbKeyboard,
+    NULL
+    );
+
+  //
+  // Add the hardcoded serial console device path to ConIn, ConOut, ErrOut.
+  //
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdDefaultTerminalType) == 4,
+    "PcdDefaultTerminalType must be TTYTERM"
+    );
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdUartDefaultParity) != 0,
+    "PcdUartDefaultParity must be set to an actual value, not 'default'"
+    );
+  STATIC_ASSERT (
+    FixedPcdGet8 (PcdUartDefaultStopBits) != 0,
+    "PcdUartDefaultStopBits must be set to an actual value, not 'default'"
+    );
+
+  CopyGuid (&mSerialConsole.TermType.Guid, &gEfiTtyTermGuid);
+
+  EfiBootManagerUpdateConsoleVariable (
+    ConIn,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ConOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
+  EfiBootManagerUpdateConsoleVariable (
+    ErrOut,
+    (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
+    NULL
+    );
 
   gBS->LocateHandleBuffer (
          ByProtocol,

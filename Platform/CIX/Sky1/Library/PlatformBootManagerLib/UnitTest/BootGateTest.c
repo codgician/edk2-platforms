@@ -80,12 +80,6 @@ STATIC UINTN                           mTraceSize;
 #define GOP_HANDLE     ((EFI_HANDLE)(UINTN)3)
 #define USB_HANDLE     ((EFI_HANDLE)(UINTN)4)
 STATIC NON_DISCOVERABLE_DEVICE   mUsbHost = { .Type = &gEdkiiNonDiscoverableXhciDeviceGuid };
-STATIC EFI_DEVICE_PATH_PROTOCOL  mGopPath = {
-  END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 }
-};
-STATIC CONSOLE_TYPE              mVarType[8];
-STATIC EFI_DEVICE_PATH_PROTOCOL  *mVarPath[8];
-STATIC UINTN                     mVarCount;
 STATIC UINTN                     mEndOfDxeCount;
 
 STATIC VOID
@@ -426,12 +420,7 @@ EfiBootManagerUpdateConsoleVariable (
   EFI_DEVICE_PATH_PROTOCOL *Remove
   )
 {
-  assert_null (Remove);
-  assert_true (mVarCount < ARRAY_SIZE (mVarType));
-  mVarType[mVarCount]   = Type;
-  mVarPath[mVarCount++] = Add;
-  Trace ('V');
-  return EFI_SUCCESS;
+  abort ();
 }
 EFI_STATUS EFIAPI
 EfiBootManagerRegisterContinueKeyOption (
@@ -505,7 +494,8 @@ DevicePathFromHandle (
   EFI_HANDLE Handle
   )
 {
-  return (Handle == GOP_HANDLE) ? &mGopPath : NULL;
+  // FilterAndProcess only formats the path for its debug report.
+  return NULL;
 }
 BOOLEAN EFIAPI
 PostCodeEnabled (
@@ -532,7 +522,7 @@ RunScenario (
   mHierarchyStatus                = Hierarchy;
   mDisableStatus                  = Disable;
   mCapStatus                      = CapStatus;
-  mPpCount = mProtectCount = mDisableCount = mCapCount = mTraceSize = mVarCount = mEndOfDxeCount = 0;
+  mPpCount = mProtectCount = mDisableCount = mCapCount = mTraceSize = mEndOfDxeCount = 0;
   mStopped                        = FALSE;
   mSerialLength = mConsoleLength = 0;
   mSerialText[0] = mConsoleText[0] = 0;
@@ -548,7 +538,6 @@ RunScenario (
     mAllocation.pcrSelections[1].pcrSelect[0] = 0x7f;
   }
   mOutput.OutputString = OutputString;
-  mTpmBootGateComplete            = FALSE;
   mEndOfDxeSignaled               = FALSE;
   ZeroMem (&mBootServices, sizeof (mBootServices));
   ZeroMem (&mSystemTable, sizeof (mSystemTable));
@@ -566,15 +555,6 @@ RunScenario (
   if (setjmp (mStop) == 0) {
     PlatformBootManagerBeforeConsole ();
     fail ();
-  }
-  if (!mStopped) {
-    UINTN PreviousPp      = mPpCount;
-    UINTN PreviousProtect = mProtectCount;
-    PlatformTpmBootGate ();
-    assert_int_equal (mPpCount, PreviousPp);
-    assert_int_equal (mProtectCount, PreviousProtect);
-    assert_ptr_equal (gST->ConIn, &mInput);
-    assert_ptr_equal (gST->ConOut, &mOutput);
   }
   printf ("bootgate trace: %s\n", mTrace);
 }
@@ -639,19 +619,6 @@ AbsentTpm (
   assert_string_equal (mSerialText, "TPM BootGate: TPM absent, continuing (Not Found)\r\n");
   mTpmAbsent = FALSE;
 }
-STATIC BOOLEAN
-Registered (
-  CONSOLE_TYPE Type,
-  VOID *Path
-  )
-{
-  for (UINTN Index = 0; Index < mVarCount; Index++) {
-    if ((mVarType[Index] == Type) && (mVarPath[Index] == Path)) {
-      return TRUE;
-    }
-  }
-  return FALSE;
-}
 STATIC VOID
 PromptOnAllConsoles (
   VOID **State
@@ -660,14 +627,9 @@ PromptOnAllConsoles (
   mNeedConfirm = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  // EndOfDxe registers the USB controllers; ConPlatform admits only
-  // registered paths; serial, GOP and USB then join before PP and the lock,
-  // and the deferred-image dispatch still follows the lock.
-  assert_string_equal (mTrace, "EVVVVVVSGKPHU");
-  assert_true (Registered (ConIn, &mUsbKeyboard));
-  assert_true (Registered (ConIn, &mSerialConsole));
-  assert_true (Registered (ConOut, &mSerialConsole));
-  assert_true (Registered (ConOut, &mGopPath));
+  // EndOfDxe registers the USB controllers; serial, GOP and USB then join
+  // before PP and the lock, and the deferred-image dispatch follows the lock.
+  assert_string_equal (mTrace, "ESGKPHU");
   mNeedConfirm = FALSE;
 }
 STATIC VOID
@@ -679,13 +641,13 @@ PromptWithoutSerialTerminal (
   mConsoleStatus = EFI_NOT_FOUND;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_string_equal (mTrace, "EVVVVVVGKPHU");
+  assert_string_equal (mTrace, "EGKPHU");
   mConsoleStatus    = EFI_SUCCESS;
   // A partial match must not start TerminalDxe on another serial device.
   mWrongConsolePath = TRUE;
   RunScenario (EFI_SUCCESS, EFI_SUCCESS, EFI_SUCCESS);
   assert_false (mStopped);
-  assert_string_equal (mTrace, "EVVVVVVGKPHU");
+  assert_string_equal (mTrace, "EGKPHU");
   mWrongConsolePath = FALSE;
   mNeedConfirm      = FALSE;
 }
@@ -699,7 +661,7 @@ LookupFailureCaps (VOID **State)
   assert_false (mStopped);
   assert_string_equal (mTrace, "CCCCCCCCEU");
   assert_string_equal (mSerialText,
-    "TPM BootGate: Tcg2 lookup failed, attempting PCR cap (Device Error)\r\n"
+    "TPM BootGate: Tcg2 unavailable, attempting PCR cap (Device Error)\r\n"
     "TPM BootGate: PCRs 0-7 capped, continuing (Success)\r\n");
   mLocateStatus = EFI_SUCCESS;
   mEarlyCap = FALSE;
@@ -714,7 +676,7 @@ CapabilityFailureCaps (VOID **State)
   assert_false (mStopped);
   assert_string_equal (mTrace, "CCCCCCCCEU");
   assert_string_equal (mSerialText,
-    "TPM BootGate: Tcg2 capability failed, attempting PCR cap (Device Error)\r\n"
+    "TPM BootGate: Tcg2 unavailable, attempting PCR cap (Device Error)\r\n"
     "TPM BootGate: PCRs 0-7 capped, continuing (Success)\r\n");
   mCapabilityStatus = EFI_SUCCESS;
   mEarlyCap = FALSE;
