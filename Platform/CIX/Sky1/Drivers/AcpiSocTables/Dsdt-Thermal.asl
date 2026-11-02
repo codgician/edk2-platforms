@@ -213,3 +213,71 @@ ThermalZone(TZGT) {
   Method(_SCP, 1, Serialized) {}      // Set Cooling Policy
   Method(_TZP) { Return(10) }         // Polling Interval: 1000ms
 }
+
+//
+// Name: STMP [SCMI temperature]
+// Description: Read an SCMI temperature sensor for a monitoring-only zone
+// Input: Arg0 - SCMI sensor ID
+// Output: Temperature in tenths of Kelvin. If the SCMI request fails, a
+//         package instead: _TMP then does not evaluate to an integer, so the
+//         OS reports the zone unreadable rather than a made-up temperature.
+//
+Method(STMP, 1, Serialized) {
+  Store(\_SB.PMMX.SENG(Arg0, 0), Local0)
+  CreateDWordField(Local0, 0x00, STAT)
+  If (STAT == SCMI_SUCCESS) {
+    CreateQWordField(Local0, 0x04, TEMP)
+    Return(C2DK(ToInteger(TEMP)))
+  }
+  Return(Package () { STAT })
+}
+
+//
+// Monitoring-only zones for the other on-die PVT sensors. They have no trip
+// points (temperatures are only documented for the CPU and GPU zones above)
+// and no _TZP, so the OS reads them on demand and never polls or acts on them.
+//
+ThermalZone(TZVP) {
+  Method(_TMP, 0, Serialized) { Return(STMP(VPU_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("VPU"))
+}
+
+ThermalZone(TZG1) {
+  Method(_TMP, 0, Serialized) { Return(STMP(GPU_BOTTOM_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("GPU bottom"))
+}
+
+ThermalZone(TZG2) {
+  Method(_TMP, 0, Serialized) { Return(STMP(GPU_TOP_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("GPU top"))
+}
+
+ThermalZone(TZSB) {
+  Method(_TMP, 0, Serialized) { Return(STMP(SOC_BRC_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("SoC BRC"))
+}
+
+ThermalZone(TZST) {
+  Method(_TMP, 0, Serialized) { Return(STMP(SOC_TRC_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("SoC TRC"))
+}
+
+ThermalZone(TZD0) {
+  Method(_TMP, 0, Serialized) { Return(STMP(DDR_BOTTOM4_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("DDR bottom"))
+}
+
+ThermalZone(TZD1) {
+  Method(_TMP, 0, Serialized) { Return(STMP(DDR_TOP_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("DDR top"))
+}
+
+ThermalZone(TZCI) {
+  Method(_TMP, 0, Serialized) { Return(STMP(CI700_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("CI-700 interconnect"))
+}
+
+ThermalZone(TZNP) {
+  Method(_TMP, 0, Serialized) { Return(STMP(NPU_TEMP_SENSOR_ID)) }
+  Name (_STR, Unicode ("NPU"))
+}
