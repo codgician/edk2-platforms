@@ -1749,6 +1749,43 @@ PciIovParseVfBar (
 }
 
 /**
+  Whether the system has any PCI I/O space. PciHostBridgeDxe adds each root
+  bridge's I/O aperture to the GCD I/O map; with none, an I/O BAR can never
+  be assigned or decoded.
+
+  @retval TRUE   I/O space exists, or the map cannot be read.
+  @retval FALSE  The GCD I/O map holds no I/O space.
+**/
+STATIC
+BOOLEAN
+PciIoSpaceExists (
+  VOID
+  )
+{
+  EFI_STATUS                   Status;
+  EFI_GCD_IO_SPACE_DESCRIPTOR  *Map;
+  UINTN                        Count;
+  UINTN                        Index;
+  BOOLEAN                      Exists;
+
+  Status = gDS->GetIoSpaceMap (&Count, &Map);
+  if (EFI_ERROR (Status)) {
+    return TRUE;
+  }
+
+  Exists = FALSE;
+  for (Index = 0; Index < Count; Index++) {
+    if (Map[Index].GcdIoType == EfiGcdIoTypeIo) {
+      Exists = TRUE;
+      break;
+    }
+  }
+
+  FreePool (Map);
+  return Exists;
+}
+
+/**
   Parse PCI bar information and fill them into PCI device instance.
 
   @param PciIoDevice  Pci device instance.
@@ -1814,6 +1851,15 @@ PciParseBar (
       PciIoDevice->PciBar[BarIndex].BarType   = PciBarTypeIo16;
       PciIoDevice->PciBar[BarIndex].Length    = 0x0000FFFF & ((~(Value & Mask)) + 1);
       PciIoDevice->PciBar[BarIndex].Alignment = PciIoDevice->PciBar[BarIndex].Length - 1;
+    }
+
+    //
+    // Without any I/O aperture the BAR can never be assigned; requesting it
+    // would fail resource allocation for the whole root bridge. Treat it as
+    // absent and leave it unassigned (the length check below clears it).
+    //
+    if (!PciIoSpaceExists ()) {
+      PciIoDevice->PciBar[BarIndex].Length = 0;
     }
 
     //
