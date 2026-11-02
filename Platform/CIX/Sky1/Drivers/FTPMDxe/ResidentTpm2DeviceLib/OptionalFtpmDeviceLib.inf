@@ -10,7 +10,7 @@
   FILE_GUID                      = b8036057-5395-43a8-815a-f4eec2e690eb
   MODULE_TYPE                    = DXE_DRIVER
   VERSION_STRING                 = 1.0
-  LIBRARY_CLASS                  = FTpmDeviceLib|DXE_DRIVER
+  LIBRARY_CLASS                  = Tpm2DeviceLib|DXE_DRIVER
 
 [Sources]
   ../../../Library/FTpmDeviceLib/FTpmDeviceLib.c
@@ -22,7 +22,6 @@
   SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
-  DebugLib
   UefiBootServicesTableLib
 
 [Protocols]

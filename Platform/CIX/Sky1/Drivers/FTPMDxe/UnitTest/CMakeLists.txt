@@ -18,9 +18,3 @@ foreach(TARGET ftpmdxe_test response_fuzz)
     -ffunction-sections -fdata-sections)
   target_link_options(${TARGET} PRIVATE -Wl,--gc-sections)
 endforeach()
-
-include("${CMAKE_CURRENT_LIST_DIR}/Setup.cmake")
-
-sky1_host_fuzz(setup_fuzz
-  SOURCES SetupFuzz.c SetupSource.c
-  INCLUDES "${SKY1_ROOT}/Include/Library")

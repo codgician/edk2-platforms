@@ -38,12 +38,8 @@
 
 [LibraryClasses]
   BaseLib
-  BaseMemoryLib
-  DebugLib
   PcdLib
   UefiBootServicesTableLib
-  # Only dual-device builds read or persist a setup preference through gRT.
-  UefiRuntimeServicesTableLib
   TimerLib
   DTpmDeviceLib
   FTpmDeviceLib
@@ -51,10 +47,8 @@
 
 [Guids]
   gPlatformSetupVariableGuid
-[FixedPcd]
-  gCixPlatformTokenSpaceGuid.PcdDTPMSupport
-  gCixPlatformTokenSpaceGuid.PcdFTPMSupport
-  gCixPlatformTokenSpaceGuid.PcdDefaultTpmDeviceSelect
+[Pcd]
+
 
 [Protocols]
 

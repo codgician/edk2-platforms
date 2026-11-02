@@ -5,8 +5,7 @@
 **/
 
 #include <Uefi.h>
-#include <Library/DebugLib.h>
-#include <Library/FTpmDeviceLib.h>
+#include <Library/Tpm2DeviceLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/FTPMInitProtocol.h>
 
@@ -27,7 +26,7 @@ GetFtpm (
 
 EFI_STATUS
 EFIAPI
-FTpmSubmitCommand (
+Tpm2SubmitCommand (
   IN UINT32      InputParameterBlockSize,
   IN UINT8       *InputParameterBlock,
   IN OUT UINT32  *OutputParameterBlockSize,
@@ -52,7 +51,7 @@ FTpmSubmitCommand (
 
 EFI_STATUS
 EFIAPI
-FTpmRequestUseTpm (
+Tpm2RequestUseTpm (
   VOID
   )
 {
@@ -68,8 +67,8 @@ FTpmRequestUseTpm (
 
 EFI_STATUS
 EFIAPI
-FTpmRegisterTpm2DeviceLib (
-  VOID
+Tpm2RegisterTpm2DeviceLib (
+  IN TPM2_DEVICE_INTERFACE  *Tpm2Device
   )
 {
   //

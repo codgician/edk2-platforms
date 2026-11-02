@@ -17,6 +17,7 @@ Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
 #include <Library/MemoryAllocationLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/Tpm2CommandLib.h>
+#include <string.h>
 #include <PlatformSetupVar.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
 #include "Tpm2Fifo.h"
@@ -24,52 +25,16 @@ Copyright 2024 Cix Technology Group Co., Ltd. All Rights Reserved.
 STATIC UINT8  TPMDeviceSelect = 255;
 
 /**
-  Read only the complete boot-service setup schema emitted by the setup writer.
+  The constructor function caches the pointer to PEI services.
 
-  @param[out] PlatformSetupVar  Zero-initialized setup variable buffer.
+  The constructor function caches the pointer to PEI services.
+  It will always return EFI_SUCCESS.
 
-  @retval EFI_SUCCESS           The complete expected schema was read.
-  @retval EFI_COMPROMISED_DATA  The returned size or attributes were invalid.
-  @return                      An error returned by GetVariable.
-**/
-STATIC
-EFI_STATUS
-ReadPlatformSetup (
-  OUT PLATFORM_SETUP_DATA  *PlatformSetupVar
-  )
-{
-  EFI_STATUS  Status;
-  UINTN       VarSize;
-  UINT32      Attributes;
+  @param  FfsHeader   Pointer to FFS header the loaded driver.
+  @param  PeiServices Pointer to the PEI services.
 
-  ZeroMem (PlatformSetupVar, sizeof (*PlatformSetupVar));
-  VarSize    = sizeof (*PlatformSetupVar);
-  Attributes = 0;
-  Status     = gRT->GetVariable (
-                      PLATFORM_SETUP_VAR,
-                      &gPlatformSetupVariableGuid,
-                      &Attributes,
-                      &VarSize,
-                      PlatformSetupVar
-                      );
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
+  @retval EFI_SUCCESS   The constructor always returns EFI_SUCCESS.
 
-  if ((VarSize != sizeof (*PlatformSetupVar)) ||
-      (Attributes != (EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS)))
-  {
-    return EFI_COMPROMISED_DATA;
-  }
-
-  return EFI_SUCCESS;
-}
-
-/**
-  Select the sole build-supported TPM independently of setup storage.
-  Only dual-device builds consume the exact setup schema or build default.
-
-  @retval EFI_SUCCESS  The build-supported device selection is cached.
 **/
 EFI_STATUS
 EFIAPI
@@ -77,28 +42,27 @@ Tpm2DeviceLibConstructor (
   VOID
   )
 {
-  EFI_STATUS           Status;
+  EFI_STATUS           Status = EFI_SUCCESS;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
+  UINTN                VarSize = sizeof (PLATFORM_SETUP_DATA);
 
-  if (TPMDeviceSelect != 255) {
-    return EFI_SUCCESS;
-  }
-
-  if (!FixedPcdGetBool (PcdDTPMSupport)) {
-    TPMDeviceSelect = FixedPcdGetBool (PcdFTPMSupport) ? FTPM_ENABLE : TPM_DISABLE;
-  } else if (!FixedPcdGetBool (PcdFTPMSupport)) {
-    TPMDeviceSelect = DTPM_ENABLE;
-  } else {
-    Status = ReadPlatformSetup (&PlatformSetupVar);
+  if (TPMDeviceSelect == 255) {
+    Status = gRT->GetVariable (
+                    PLATFORM_SETUP_VAR,
+                    &gPlatformSetupVariableGuid,
+                    NULL,
+                    &VarSize,
+                    &PlatformSetupVar
+                    );
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "%a Invalid platform setup: %r; using build default\n", __FUNCTION__, Status));
-      TPMDeviceSelect = FixedPcdGet8 (PcdDefaultTpmDeviceSelect);
-    } else {
-      TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
+      DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
+      return Status;
     }
+
+    TPMDeviceSelect = PlatformSetupVar.TPMDeviceSelect;
   }
 
-  return EFI_SUCCESS;
+  return Status;
 }
 
 EFI_STATUS
@@ -136,15 +100,17 @@ DTpmSwitchFTpm (
   VOID
   )
 {
-  EFI_STATUS           Status;
+  EFI_STATUS           Status = EFI_SUCCESS;
   PLATFORM_SETUP_DATA  PlatformSetupVar;
+  UINTN                VarSize = sizeof (PLATFORM_SETUP_DATA);
 
-  // Persist a preference only when this build actually offers both devices.
-  if (!FixedPcdGetBool (PcdDTPMSupport) || !FixedPcdGetBool (PcdFTPMSupport)) {
-    return EFI_UNSUPPORTED;
-  }
-
-  Status = ReadPlatformSetup (&PlatformSetupVar);
+  Status = gRT->GetVariable (
+                  PLATFORM_SETUP_VAR,
+                  &gPlatformSetupVariableGuid,
+                  NULL,
+                  &VarSize,
+                  &PlatformSetupVar
+                  );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "%a EfiGetVariable failed: %r\n", __FUNCTION__, Status));
     return Status;
@@ -186,10 +152,6 @@ Tpm2RequestUseTpm (
   switch (TPMDeviceSelect) {
     case DTPM_ENABLE:
       Status = DTpmRequestUseTpm ();
-      if (!FixedPcdGetBool (PcdFTPMSupport)) {
-        return Status;
-      }
-
       if (EFI_ERROR (Status)) {
         DEBUG ((DEBUG_INFO, "DTPM not detect, change to FTPM interface\n"));
         DTpmSwitchFTpm ();

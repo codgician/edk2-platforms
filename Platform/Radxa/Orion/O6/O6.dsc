@@ -440,8 +440,6 @@
 
   # 0x02: firmware TPM
   gCixPlatformTokenSpaceGuid.PcdDefaultTpmDeviceSelect|0x02
-  gCixPlatformTokenSpaceGuid.PcdDTPMSupport|$(DTPM_SUPPORT)
-  gCixPlatformTokenSpaceGuid.PcdFTPMSupport|$(FTPM_SUPPORT)
 
 [PcdsDynamicDefault.common]
 

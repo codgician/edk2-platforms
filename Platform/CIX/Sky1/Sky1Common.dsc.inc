@@ -283,6 +283,9 @@
   TcgEventLogRecordLib|SecurityPkg/Library/TcgEventLogRecordLib/TcgEventLogRecordLib.inf
   TpmPlatformHierarchyLib|SecurityPkg/Library/PeiDxeTpmPlatformHierarchyLib/PeiDxeTpmPlatformHierarchyLib.inf
   OpteeClientApiLib|Platform/CIX/Sky1/Library/OpteeClientApiLib/OpteeClientApiLib.inf
+!if $(FTPM_SUPPORT) == TRUE
+  Tpm2DeviceLib|Platform/CIX/Sky1/Library/FTpmDeviceLib/FTpmDeviceLib.inf
+!else
   Tpm2DeviceLib|Platform/CIX/Sky1/Library/Tpm2DeviceLib/Tpm2DeviceLib.inf
   !if $(DTPM_SUPPORT) == TRUE
     DTpmDeviceLib|Platform/CIX/Sky1/Library/DTpmDeviceLib/DTpmDeviceLib.inf
@@ -294,6 +297,7 @@
   !else
     FTpmDeviceLib|Platform/CIX/Sky1/Library/FTpmDeviceLibNull/FTpmDeviceLibNull.inf
   !endif
+!endif
 !else
   Tcg2PhysicalPresenceLib|Platform/CIX/Sky1/Library/DxeTcg2PhysicalPresenceLibNull/DxeTcg2PhysicalPresenceLibNull.inf
   Tpm2CommandLib|SecurityPkg/Library/Tpm2CommandLib/Tpm2CommandLib.inf
@@ -1001,7 +1005,7 @@
     <LibraryClasses>
 !if $(FTPM_SUPPORT) == TRUE
       # BDS must still run after the producer returns a publication error.
-      FTpmDeviceLib|Platform/CIX/Sky1/Drivers/FTPMDxe/ResidentTpm2DeviceLib/OptionalFtpmDeviceLib.inf
+      Tpm2DeviceLib|Platform/CIX/Sky1/Drivers/FTPMDxe/ResidentTpm2DeviceLib/OptionalFtpmDeviceLib.inf
 !endif
     <PcdsFixedAtBuild>
       # TPM diagnostics must match SerialDxe, not the vendor DEBUG UART.
@@ -1110,7 +1114,6 @@ ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
   SecurityPkg/Tcg/Tcg2Dxe/Tcg2Dxe.inf {
     <LibraryClasses>
       HashLib|SecurityPkg/Library/HashLibBaseCryptoRouter/HashLibBaseCryptoRouterDxe.inf
-      Tpm2DeviceLib|Platform/CIX/Sky1/Library/Tpm2DeviceLib/Tpm2DeviceLib.inf
       NULL|SecurityPkg/Library/Tpm2DeviceLibDTpm/Tpm2InstanceLibDTpm.inf
       # Link every bank the fTPM implements: Tcg2Dxe caps PCRs 0-7 and stops
       # measuring when an active bank has no hash instance. PpHash.h mirrors
