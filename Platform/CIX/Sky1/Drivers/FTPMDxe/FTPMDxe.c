@@ -48,7 +48,6 @@ STATIC EFI_EVENT     mBeforeExitBootServicesEvent;
 STATIC EFI_EVENT     mExitBootServicesEvent;
 STATIC BOOLEAN       mSessionUsable;
 STATIC BOOLEAN       mCommandBusy;
-STATIC UINT8         mCommandBuffer[FTPM_TA_MAX_COMMAND];
 STATIC UINT8         mResponseBuffer[FTPM_TA_MAX_RESPONSE];
 
 //
@@ -215,7 +214,8 @@ FtpmSubmitCommand (
   if ((Input == NULL) || (OutputSize == NULL) ||
       ((Output == NULL) && (*OutputSize != 0)) ||
       (InputSize < sizeof (TPM2_COMMAND_HEADER)) ||
-      (InputSize > sizeof (mCommandBuffer)))
+      (InputSize > FTPM_TA_MAX_COMMAND) ||
+      (SwapBytes32 (ReadUnaligned32 ((CONST UINT32 *)(Input + 2))) != InputSize))
   {
     return EFI_INVALID_PARAMETER;
   }
@@ -225,15 +225,11 @@ FtpmSubmitCommand (
   }
 
   //
-  // Snapshot before parsing. Both buffers are fixed DXE storage, including
-  // during Tcg2Dxe's final EBS measurements; caller output is never input.
+  // The client copies the command into shared memory before the TA runs.
+  // The response buffer is fixed DXE storage, including during Tcg2Dxe's
+  // final EBS measurements; caller output is never written before checks.
   //
   mCommandBusy = TRUE;
-  CopyMem (mCommandBuffer, Input, InputSize);
-  if (SwapBytes32 (ReadUnaligned32 ((CONST UINT32 *)(mCommandBuffer + 2))) != InputSize) {
-    Status = EFI_INVALID_PARAMETER;
-    goto Done;
-  }
 
   Capacity    = MIN (*OutputSize, sizeof (mResponseBuffer));
   *OutputSize = 0;
@@ -245,7 +241,7 @@ FtpmSubmitCommand (
                                            TEEC_NONE,
                                            TEEC_NONE
                                            );
-  Operation.params[0].tmpref.buffer = mCommandBuffer;
+  Operation.params[0].tmpref.buffer = Input;
   Operation.params[0].tmpref.size   = InputSize;
   Operation.params[1].tmpref.buffer = mResponseBuffer;
   Operation.params[1].tmpref.size   = Capacity;
@@ -292,7 +288,6 @@ FtpmSubmitCommand (
   }
 
 Done:
-  ScrubBuffer (mCommandBuffer, sizeof (mCommandBuffer));
   ScrubBuffer (mResponseBuffer, sizeof (mResponseBuffer));
   mCommandBusy = FALSE;
   return Status;

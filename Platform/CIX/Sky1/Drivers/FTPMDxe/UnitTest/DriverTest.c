@@ -34,7 +34,6 @@ Before (
   memset (mCommand, 0x71, sizeof (mCommand));
   TestHeader (mCommand, TPM_ST_NO_SESSIONS, 10);
   memset (mOutput, 0xA5, sizeof (mOutput));
-  TestCallerInput  = mCommand;
   TestCallerOutput = mOutput + 1;
   return 0;
 }
@@ -217,23 +216,19 @@ SecretIsolation (
   )
 {
   TestCheckZeroResponse   = TRUE;
-  TestCheckPrivateCommand = TRUE;
   UINT32  Size = 32;
   assert_int_equal (Submit (&Size), EFI_SUCCESS);
-  assert_true (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
   assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
   assert_int_equal (mCommand[9], 0);
   assert_int_equal (mCommand[10], 0x71);
   TestInvokeResult = TEEC_ERROR_GENERIC;
   Size             = 32;
   assert_int_equal (Submit (&Size), EFI_DEVICE_ERROR);
-  assert_true (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
   assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
   TestInvokeResult = TEEC_ERROR_SHORT_BUFFER;
   TestReturnedSize = 64;
   Size             = 32;
   assert_int_equal (Submit (&Size), EFI_BUFFER_TOO_SMALL);
-  assert_true (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
   assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
 }
 
@@ -323,7 +318,6 @@ InstallFailureCleanup (
   assert_int_equal (TestCapExtends, 8);
   assert_int_equal (TestInvocations, 9);
   assert_false (TestPrivateReady ());
-  assert_true (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
   assert_true (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
   assert_string_equal (TestSerial, TEST_INSTALL_CAP_OUT_OF_RESOURCES "TPM FTPMDxe: protocol installation failed, TPM unavailable (Out of Resources)\r\n");
 }
@@ -552,7 +546,6 @@ FinalMeasurementBeforeClose (
   assert_true (TestSerialOnly);
   TestAtEbs               = TRUE;
   TestCheckZeroResponse   = TRUE;
-  TestCheckPrivateCommand = TRUE;
   assert_int_equal (Submit (&Size), EFI_SUCCESS);
   assert_int_equal (TestInvocations, 1);
   assert_int_equal (TestCheckedCloses, 0);

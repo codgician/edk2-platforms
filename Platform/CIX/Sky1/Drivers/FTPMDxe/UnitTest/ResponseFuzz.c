@@ -56,10 +56,8 @@ LLVMFuzzerTestOneInput (
   }
 
   TestReturnedSize        = Reported;
-  TestCallerInput         = Command;
   TestCallerOutput        = Output + 1;
   TestCheckZeroResponse   = TRUE;
-  TestCheckPrivateCommand = TRUE;
   EFI_STATUS  Status     = TestProtocol->SubmitCommand (TestProtocol, sizeof (Command), Command, &Capacity, Output + 1);
   UINT32      HeaderSize = ((UINT32)TestResponse[2] << 24) | ((UINT32)TestResponse[3] << 16) |
                            ((UINT32)TestResponse[4] << 8) | TestResponse[5];
@@ -82,7 +80,6 @@ LLVMFuzzerTestOneInput (
   }
 
   TestRequire (Output[0] == 0xA5 && Output[OriginalCapacity + 1] == 0xA5);
-  TestRequire (TestAllZero (TestSavedCommand, TEST_TPM_MAX));
   TestRequire (TestAllZero (TestSavedResponse, TEST_TPM_MAX));
   return 0;
 }

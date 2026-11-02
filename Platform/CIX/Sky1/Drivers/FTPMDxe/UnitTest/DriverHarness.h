@@ -37,8 +37,6 @@ extern UINTN               TestVariableWrites;
 extern BOOLEAN             TestAtEbs;
 extern BOOLEAN             TestHalted;
 extern BOOLEAN             TestCheckZeroResponse;
-extern BOOLEAN             TestCheckPrivateCommand;
-extern UINT8               *TestCallerInput;
 extern UINT8               *TestCallerOutput;
 extern UINT8               *TestSavedCommand;
 extern UINT8               *TestSavedResponse;

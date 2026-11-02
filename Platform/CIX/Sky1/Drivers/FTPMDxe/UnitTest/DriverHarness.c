@@ -72,8 +72,6 @@ UINTN                    TestVariableWrites;
 BOOLEAN                  TestAtEbs;
 BOOLEAN                  TestHalted;
 BOOLEAN                  TestCheckZeroResponse;
-BOOLEAN                  TestCheckPrivateCommand;
-UINT8                    *TestCallerInput;
 UINT8                    *TestCallerOutput;
 UINT8                    *TestSavedCommand;
 UINT8                    *TestSavedResponse;
@@ -356,10 +354,6 @@ TEEC_InvokeCommand (
     TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
   }
 
-  if (TestCheckPrivateCommand) {
-    TestRequire (TestSavedCommand != TestCallerInput);
-    TestRequire (memcmp (TestSavedCommand, TestCallerInput, TestSavedCommandSize) == 0);
-  }
   // Script only the TA boundary: command serialization, the private bridge,
   // checked TA framing and both command parsers are production code.
   if (EFI_ERROR (TestInstallResult)) {
@@ -380,7 +374,7 @@ TEEC_InvokeCommand (
     UINT32 Code = SwapBytes32 (ReadUnaligned32 ((UINT32 *)(TestSavedCommand + 6)));
     TestRequire (!TestAtEbs && TestProtocol == NULL);
     TestRequire (FtpmGetStatus (&mFtpmProtocol));
-    TestRequire (TestSavedCommand == mCommandBuffer && TestSavedResponse == mResponseBuffer);
+    TestRequire (TestSavedResponse == mResponseBuffer);
     TestRequire (TestAllZero (TestSavedResponse, TestSavedResponseSize));
     if (Code == TPM_CC_GetCapability) {
       TestRequire (TestSavedCommandSize == 22);
@@ -562,7 +556,6 @@ TestReset (
   mSessionOpen    = FALSE;
   mSessionUsable  = FALSE;
   mCommandBusy    = FALSE;
-  memset (mCommandBuffer, 0, sizeof (mCommandBuffer));
   memset (mResponseBuffer, 0, sizeof (mResponseBuffer));
   mClientStatus                = EFI_NOT_STARTED;
   mOpenResult                  = 0;
@@ -595,10 +588,8 @@ TestReset (
   TestFinalizes                = 0;
   TestVariableWrites           = 0;
   TestCheckZeroResponse        = FALSE;
-  TestCheckPrivateCommand      = FALSE;
   TestSavedCommand             = NULL;
   TestSavedResponse            = NULL;
-  TestCallerInput              = NULL;
   TestCallerOutput             = NULL;
   memset (TestResponse, 0, sizeof (TestResponse));
   TestHeader (TestResponse, TPM_ST_NO_SESSIONS, 10);
