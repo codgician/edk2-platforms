@@ -54,8 +54,10 @@ int LLVMFuzzerTestOneInput (const UINT8 *Data, size_t Size) {
           Param.U.Tmem.BufPtr = (UINTN)P + Offset;
           Param.U.Tmem.ShmRef = (UINTN)P;
           Param.U.Tmem.Size = Length;
-          BOOLEAN Expected = Owners[Slot] >= OPTEE_SHM_RPC_APPL && Offset <= Sizes[Slot] && Length <= Sizes[Slot] - Offset;
-          assert (OpteeMsgParamToBuffer (&Param, &Out, &OutSize) == Expected);
+          BOOLEAN Expected = Owners[Slot] == OPTEE_SHM_RPC_APPL && Offset <= Sizes[Slot] && Length <= Sizes[Slot] - Offset;
+          TestClearDiagnostics ();
+          assert (OpteeMsgParamToBuffer (&Param, OPTEE_MSG_ATTR_TYPE_TMEM_INPUT, "fuzz", &Out, &OutSize) == Expected);
+          assert (TestDiagnosticCount == !Expected);
           if (Expected) { assert (Out == P + Offset && OutSize == Length); }
         }
         break;

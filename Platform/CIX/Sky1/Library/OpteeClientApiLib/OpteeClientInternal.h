@@ -63,6 +63,7 @@
 #define OPTEE_RPC_CMD_FS            2
 #define OPTEE_RPC_CMD_SHM_ALLOC     6
 #define OPTEE_RPC_CMD_SHM_FREE      7
+#define OPTEE_RPC_SHM_TYPE_APPL     0
 
 #define OPTEE_RPC_FS_OPEN      0
 #define OPTEE_RPC_FS_CREATE    1
@@ -166,23 +167,18 @@ OpteeShmInit (
   );
 
 /**
-  Resolve a static contiguous RPC payload; registered/dynamic memory is absent.
-  A non-NULL memref must carry the base cookie of its own live RPC payload.
-  Parsing predicates stay silent: their RPC/REE-FS rejection boundary emits
-  exactly one diagnostic with metadata, never the referenced bytes.
-  NULL requires zero size and zero cookie (LOAD_TA size query).
+  Resolve a static contiguous RPC payload of type Attr; registered/dynamic
+  memory is absent. A non-NULL memref must carry the base cookie of its own
+  live RPC payload. NULL requires zero size and zero cookie (LOAD_TA size
+  query). A rejection emits one Check line with metadata, never the bytes.
 **/
 BOOLEAN
 OpteeMsgParamToBuffer (
   IN  OPTEE_MSG_PARAM  *Param,
+  IN  UINT64           Attr,
+  IN  CONST CHAR8      *Check,
   OUT VOID             **Buffer,
   OUT UINTN            *Size
-  );
-
-/** Select rejected memref metadata without reading or printing payload bytes. */
-UINT64
-OpteeMsgParamRejectValue (
-  IN CONST OPTEE_MSG_PARAM  *Param
   );
 
 /**

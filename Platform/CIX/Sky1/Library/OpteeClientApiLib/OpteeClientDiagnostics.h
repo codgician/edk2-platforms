@@ -14,9 +14,9 @@ OpteeClientApiExitBootServices (
   );
 
 /**
-  Emit one RELEASE-visible line at a rejection boundary. Nested validation
-  predicates stay silent. Check is a trusted literal and Value/Status are
-  numeric metadata only, never peer-controlled strings or buffer contents.
+  Emit one RELEASE-visible line at the failing check. Check is a trusted
+  literal and Value/Status are numeric metadata only, never peer-controlled
+  strings or buffer contents.
   After the sticky EBS handoff, this uses stack storage and SerialPortLib only.
 **/
 VOID

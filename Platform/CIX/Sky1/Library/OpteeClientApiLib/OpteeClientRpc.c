@@ -36,11 +36,12 @@ RpcLoadTa (
   UINTN       BufferSize;
   TEEC_Result Result;
 
-  if ((Arg->NumParams != 2) ||
-      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ||
-      (Arg->Params[1].Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) ||
-      !OpteeMsgParamToBuffer (&Arg->Params[1], &Buffer, &BufferSize))
-  {
+  if ((Arg->NumParams != 2) || (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
+    OpteeReject ("TA framing", (Arg->NumParams != 2) ? Arg->NumParams : Arg->Params[0].Attr, TEEC_ERROR_BAD_PARAMETERS);
+    return TEEC_ERROR_BAD_PARAMETERS;
+  }
+
+  if (!OpteeMsgParamToBuffer (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT, "TA framing", &Buffer, &BufferSize)) {
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
@@ -76,79 +77,52 @@ RpcLoadTa (
   return Result;
 }
 
-STATIC
-UINT32
-RpcPayloadOwner (
-  IN UINT64  Type
-  )
-{
-  // Kernel and global payloads only serve requests this platform never makes.
-  return (Type == 0) ? OPTEE_SHM_RPC_APPL : 0;
-}
-
 /**
-  [in] value[0].a  type, value[0].b size, value[0].c alignment
-  [out] memref[0]  buffer
+  SHM_ALLOC and SHM_FREE of application payloads; kernel and global payloads
+  only serve requests this platform never makes.
+  [in]  value[0].a  type, value[0].b size or cookie, value[0].c alignment
+  [out] memref[0]   SHM_ALLOC buffer
 **/
 STATIC
 TEEC_Result
-RpcShmAlloc (
+RpcShm (
   IN OUT OPTEE_MSG_ARG  *Arg
   )
 {
   VOID    *Buffer;
-  UINTN   Size;
-  UINT32  Owner;
+  UINT64  Value;
 
-  if ((Arg->NumParams != 1) ||
-      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
+  if ((Arg->NumParams != 1) || (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
+    OpteeReject ("RPC SHM framing", (Arg->NumParams != 1) ? Arg->NumParams : Arg->Params[0].Attr, TEEC_ERROR_BAD_PARAMETERS);
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
-  Owner = RpcPayloadOwner (Arg->Params[0].U.Value.A);
-  if ((Owner == 0) || (Arg->Params[0].U.Value.B > MAX_UINTN) ||
-      (Arg->Params[0].U.Value.C > MAX_UINTN) ||
-      (Arg->Params[0].U.Value.C == 0) ||
-      ((Arg->Params[0].U.Value.C & (Arg->Params[0].U.Value.C - 1)) != 0))
-  {
+  if (Arg->Params[0].U.Value.A != OPTEE_RPC_SHM_TYPE_APPL) {
+    OpteeReject ("RPC SHM type", Arg->Params[0].U.Value.A, TEEC_ERROR_BAD_PARAMETERS);
     return TEEC_ERROR_BAD_PARAMETERS;
   }
 
-  Size   = (UINTN)Arg->Params[0].U.Value.B;
-  Buffer = OpteeShmAllocOwned (Size, (UINTN)Arg->Params[0].U.Value.C, Owner);
+  Value = Arg->Params[0].U.Value.B;
+  if (Arg->Cmd == OPTEE_RPC_CMD_SHM_FREE) {
+    if (!OpteeShmFreeOwned ((VOID *)(UINTN)Value, OPTEE_SHM_RPC_APPL)) {
+      OpteeReject ("RPC SHM ownership", Value, TEEC_ERROR_BAD_PARAMETERS);
+      return TEEC_ERROR_BAD_PARAMETERS;
+    }
+
+    return TEEC_SUCCESS;
+  }
+
+  // The allocator itself rejects bad sizes and alignments.
+  Buffer = OpteeShmAllocOwned ((UINTN)Value, (UINTN)Arg->Params[0].U.Value.C, OPTEE_SHM_RPC_APPL);
   if (Buffer == NULL) {
+    OpteeReject ("RPC SHM allocation", Value, TEEC_ERROR_OUT_OF_MEMORY);
     return TEEC_ERROR_OUT_OF_MEMORY;
   }
 
   Arg->Params[0].Attr          = OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT;
   Arg->Params[0].U.Tmem.BufPtr = (UINT64)(UINTN)Buffer;
-  Arg->Params[0].U.Tmem.Size   = Size;
+  Arg->Params[0].U.Tmem.Size   = Value;
   Arg->Params[0].U.Tmem.ShmRef = (UINT64)(UINTN)Buffer;
-  return TEEC_SUCCESS;
-}
-
-/**
-  [in] value[0].a  type, value[0].b cookie
-**/
-STATIC
-TEEC_Result
-RpcShmFree (
-  IN OUT OPTEE_MSG_ARG  *Arg
-  )
-{
-  UINT32  Owner;
-
-  if ((Arg->NumParams != 1) ||
-      (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT)) {
-    return TEEC_ERROR_BAD_PARAMETERS;
-  }
-
-  Owner = RpcPayloadOwner (Arg->Params[0].U.Value.A);
-  if ((Owner == 0) || (Arg->Params[0].U.Value.B > MAX_UINTN) ||
-      !OpteeShmFreeOwned ((VOID *)(UINTN)Arg->Params[0].U.Value.B, Owner))
-  {
-    return TEEC_ERROR_BAD_PARAMETERS;
-  }
   return TEEC_SUCCESS;
 }
 
@@ -158,53 +132,25 @@ RpcCmd (
   IN OUT OPTEE_MSG_ARG  *Arg
   )
 {
-  TEEC_Result  Result;
-
   switch (Arg->Cmd) {
     case OPTEE_RPC_CMD_LOAD_TA:
-      Result = RpcLoadTa (Arg);
+      Arg->Ret = RpcLoadTa (Arg);
       break;
 
     case OPTEE_RPC_CMD_FS:
-      Result = OpteeReeFsHandle (Arg);
+      Arg->Ret = OpteeReeFsHandle (Arg);
       break;
 
     case OPTEE_RPC_CMD_SHM_ALLOC:
-      Result = RpcShmAlloc (Arg);
-      break;
-
     case OPTEE_RPC_CMD_SHM_FREE:
-      Result = RpcShmFree (Arg);
+      Arg->Ret = RpcShm (Arg);
       break;
 
     default:
-      DEBUG ((DEBUG_WARN, "%a: unsupported RPC command %u\n", __func__, Arg->Cmd));
-      Result = TEEC_ERROR_NOT_SUPPORTED;
+      OpteeReject ("RPC command", Arg->Cmd, TEEC_ERROR_NOT_SUPPORTED);
+      Arg->Ret = TEEC_ERROR_NOT_SUPPORTED;
       break;
   }
-
-  if (Result != TEEC_SUCCESS) {
-    // FS and TA admission/capacity report their own more specific check.
-    if ((Arg->Cmd != OPTEE_RPC_CMD_FS) &&
-        !((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) &&
-          ((Result == TEEC_ERROR_ITEM_NOT_FOUND) || (Result == TEEC_ERROR_SHORT_BUFFER))))
-    {
-      if (Arg->Cmd == OPTEE_RPC_CMD_SHM_ALLOC) {
-        OpteeReject ("RPC SHM allocation", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : ((Arg->Params[0].U.Value.B > MAX_UINTN) ? Arg->Params[0].U.Value.B : ((Result == TEEC_ERROR_BAD_PARAMETERS) ? Arg->Params[0].U.Value.C : Arg->Params[0].U.Value.B)))), Result);
-      } else if (Arg->Cmd == OPTEE_RPC_CMD_SHM_FREE) {
-        OpteeReject ("RPC SHM ownership", (Arg->NumParams != 1) ? Arg->NumParams : ((Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((RpcPayloadOwner (Arg->Params[0].U.Value.A) == 0) ? Arg->Params[0].U.Value.A : Arg->Params[0].U.Value.B)), Result);
-      } else if ((Arg->Cmd == OPTEE_RPC_CMD_LOAD_TA) && (Arg->NumParams == 2)) {
-        OpteeReject ("TA framing", (Arg->Params[0].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) ? Arg->Params[0].Attr : ((Arg->Params[1].Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) ? Arg->Params[1].Attr : OpteeMsgParamRejectValue (&Arg->Params[1])), Result);
-      } else if (Result == TEEC_ERROR_BAD_PARAMETERS) {
-        OpteeReject ("RPC framing", Arg->NumParams, Result);
-      } else {
-        OpteeReject ("RPC command", Arg->Cmd, Result);
-      }
-    }
-    DEBUG ((DEBUG_INFO, "%a: RPC command %u -> 0x%x\n", __func__, Arg->Cmd, Result));
-  }
-
-  Arg->Ret = Result;
 }
 
 /**

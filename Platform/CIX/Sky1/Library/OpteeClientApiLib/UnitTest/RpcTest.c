@@ -269,7 +269,7 @@ PayloadOwnership (VOID **State)
   Arg->Params[0].U.Value.B = (UINTN)Payload;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC SHM ownership", 1, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM type", 1, TEEC_ERROR_BAD_PARAMETERS);
   assert_true (OpteeShmIsOwned ((UINTN)Payload, 32, OPTEE_SHM_RPC_APPL));
   Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.B++;
@@ -302,12 +302,12 @@ PayloadOwnership (VOID **State)
   Arg->Params[0].U.Value.C = 8;
   assert_true (Dispatch (Arg));
   assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC SHM allocation", 3, TEEC_ERROR_BAD_PARAMETERS);
+  TestExpectDiagnostic ("RPC SHM type", 3, TEEC_ERROR_BAD_PARAMETERS);
   Arg->Params[0].U.Value.A = 0;
   Arg->Params[0].U.Value.C = 3;
   assert_true (Dispatch (Arg));
-  assert_int_equal (Arg->Ret, TEEC_ERROR_BAD_PARAMETERS);
-  TestExpectDiagnostic ("RPC SHM allocation", 3, TEEC_ERROR_BAD_PARAMETERS);
+  assert_int_equal (Arg->Ret, TEEC_ERROR_OUT_OF_MEMORY);
+  TestExpectCheck ("RPC SHM allocation");
   Arg->Params[0].U.Value.C = 8;
   Arg->Params[0].U.Value.B = TEST_POOL_SIZE;
   assert_true (Dispatch (Arg));

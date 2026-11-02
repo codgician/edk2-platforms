@@ -123,27 +123,28 @@ OpteeShmInit (
   Size         = Args.Arg2;
   ReservedBase = FixedPcdGet32 (PcdTrustZoneSharedMemoryBase);
   ReservedSize = FixedPcdGet32 (PcdTrustZoneSharedMemorySize);
+  if (Args.Arg0 != OPTEE_SMC_RETURN_OK) {
+    OpteeReject ("SHM configuration status", Args.Arg0, EFI_UNSUPPORTED);
+    return EFI_UNSUPPORTED;
+  }
+
+  if ((Args.Arg3 != 0) && (Args.Arg3 != OPTEE_SMC_SHM_CACHED)) {
+    OpteeReject ("SHM cache mode", Args.Arg3, EFI_UNSUPPORTED);
+    return EFI_UNSUPPORTED;
+  }
+
   // The trusted platform reservation, not the peer, determines what may map.
-  if ((Args.Arg0 != OPTEE_SMC_RETURN_OK) || (Base == 0) ||
-      (Base % SHM_PAGE_SIZE != 0) || (Size == 0) ||
-      (Size % SHM_PAGE_SIZE != 0) || (Base > MAX_UINTN) ||
-      (Size > MAX_UINTN - Base) || (Base < ReservedBase) ||
-      (Base - ReservedBase > ReservedSize) ||
-      (Size > ReservedSize - (Base - ReservedBase)) ||
-      ((Args.Arg3 != 0) && (Args.Arg3 != OPTEE_SMC_SHM_CACHED)))
+  if ((Base == 0) || (Base % SHM_PAGE_SIZE != 0) || (Base > MAX_UINTN) ||
+      (Base < ReservedBase) || (Base - ReservedBase > ReservedSize))
   {
-    if (Args.Arg0 != OPTEE_SMC_RETURN_OK) {
-      OpteeReject ("SHM configuration status", Args.Arg0, EFI_UNSUPPORTED);
-    } else if ((Args.Arg3 != 0) && (Args.Arg3 != OPTEE_SMC_SHM_CACHED)) {
-      OpteeReject ("SHM cache mode", Args.Arg3, EFI_UNSUPPORTED);
-    } else if ((Base == 0) || (Base % SHM_PAGE_SIZE != 0) ||
-               (Base > MAX_UINTN) || (Base < ReservedBase) ||
-               (Base - ReservedBase > ReservedSize))
-    {
-      OpteeReject ("SHM base", Base, EFI_UNSUPPORTED);
-    } else {
-      OpteeReject ("SHM size", Size, EFI_UNSUPPORTED);
-    }
+    OpteeReject ("SHM base", Base, EFI_UNSUPPORTED);
+    return EFI_UNSUPPORTED;
+  }
+
+  if ((Size == 0) || (Size % SHM_PAGE_SIZE != 0) || (Size > MAX_UINTN - Base) ||
+      (Size > ReservedSize - (Base - ReservedBase)))
+  {
+    OpteeReject ("SHM size", Size, EFI_UNSUPPORTED);
     return EFI_UNSUPPORTED;
   }
 
@@ -265,6 +266,8 @@ OpteeShmIsOwned (
 BOOLEAN
 OpteeMsgParamToBuffer (
   IN  OPTEE_MSG_PARAM  *Param,
+  IN  UINT64           Attr,
+  IN  CONST CHAR8      *Check,
   OUT VOID             **Buffer,
   OUT UINTN            *Size
   )
@@ -274,61 +277,35 @@ OpteeMsgParamToBuffer (
   UINT64      Length;
   UINT64      Offset;
 
-  if ((Param->Attr != OPTEE_MSG_ATTR_TYPE_TMEM_INPUT) &&
-      (Param->Attr != OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT) &&
-      (Param->Attr != OPTEE_MSG_ATTR_TYPE_TMEM_INOUT))
-  {
+  if (Param->Attr != Attr) {
+    OpteeReject (Check, Param->Attr, TEEC_ERROR_BAD_PARAMETERS);
     return FALSE;
   }
 
   Address = Param->U.Tmem.BufPtr;
   Length  = Param->U.Tmem.Size;
-  if (Address == 0) {
-    if ((Length != 0) || (Param->U.Tmem.ShmRef != 0)) {
-      return FALSE;
-    }
-  } else {
+  if ((Address != 0) || (Param->U.Tmem.ShmRef != 0)) {
     Record = ShmRecord (Param->U.Tmem.ShmRef);
     if ((Record == NULL) || (Record->Owner != OPTEE_SHM_RPC_APPL) ||
         (Address < Param->U.Tmem.ShmRef))
     {
+      OpteeReject (Check, Param->U.Tmem.ShmRef, TEEC_ERROR_BAD_PARAMETERS);
       return FALSE;
     }
 
     Offset = Address - Param->U.Tmem.ShmRef;
     if ((Offset > Record->Size) || (Length > Record->Size - Offset)) {
+      OpteeReject (Check, Length, TEEC_ERROR_BAD_PARAMETERS);
       return FALSE;
     }
+  } else if (Length != 0) {
+    OpteeReject (Check, Length, TEEC_ERROR_BAD_PARAMETERS);
+    return FALSE;
   }
 
   *Buffer = (VOID *)(UINTN)Address;
   *Size   = (UINTN)Length;
   return TRUE;
-}
-
-UINT64
-OpteeMsgParamRejectValue (
-  IN CONST OPTEE_MSG_PARAM  *Param
-  )
-{
-  SHM_RECORD  *Record;
-
-  if (Param->U.Tmem.BufPtr == 0) {
-    return (Param->U.Tmem.Size != 0) ? Param->U.Tmem.Size : Param->U.Tmem.ShmRef;
-  }
-
-  Record = ShmRecord (Param->U.Tmem.ShmRef);
-  if ((Record == NULL) || (Record->Owner != OPTEE_SHM_RPC_APPL)) {
-    return Param->U.Tmem.ShmRef;
-  }
-
-  if ((Param->U.Tmem.BufPtr < Param->U.Tmem.ShmRef) ||
-      (Param->U.Tmem.BufPtr - Param->U.Tmem.ShmRef > Record->Size))
-  {
-    return Param->U.Tmem.BufPtr;
-  }
-
-  return Param->U.Tmem.Size;
 }
 
 STATIC
@@ -574,7 +551,7 @@ GetMsgParams (
           (Params[Index].U.Tmem.ShmRef != Bounce->Sent[Index].U.Tmem.ShmRef) ||
           (Params[Index].U.Tmem.Size > MAX_UINTN))
       {
-        OpteeReject ("response memref", (Params[Index].U.Tmem.BufPtr != Bounce->Sent[Index].U.Tmem.BufPtr) ? Params[Index].U.Tmem.BufPtr : ((Params[Index].U.Tmem.ShmRef != Bounce->Sent[Index].U.Tmem.ShmRef) ? Params[Index].U.Tmem.ShmRef : Params[Index].U.Tmem.Size), TEEC_ERROR_COMMUNICATION);
+        OpteeReject ("response memref", Index, TEEC_ERROR_COMMUNICATION);
         return TEEC_ERROR_COMMUNICATION;
       }
 
@@ -699,7 +676,7 @@ TEEC_OpenSession (
           (Arg->Params[0].Attr != (OPTEE_MSG_ATTR_TYPE_VALUE_INPUT | OPTEE_MSG_ATTR_META)) ||
           (Arg->Params[1].Attr != (OPTEE_MSG_ATTR_TYPE_VALUE_INPUT | OPTEE_MSG_ATTR_META)))
       {
-        OpteeReject ("open response framing", (Arg->Cmd != OPTEE_MSG_CMD_OPEN_SESSION) ? Arg->Cmd : ((Arg->NumParams != TEEC_CONFIG_PAYLOAD_REF_COUNT + 2) ? Arg->NumParams : ((Arg->Params[0].Attr != (OPTEE_MSG_ATTR_TYPE_VALUE_INPUT | OPTEE_MSG_ATTR_META)) ? Arg->Params[0].Attr : Arg->Params[1].Attr)), TEEC_ERROR_COMMUNICATION);
+        OpteeReject ("open response framing", Arg->NumParams, TEEC_ERROR_COMMUNICATION);
         Result = TEEC_ERROR_COMMUNICATION;
       } else {
         Result = GetMsgParams (&Arg->Params[2], operation, &Bounce, SecureResult);
@@ -721,7 +698,7 @@ TEEC_OpenSession (
           if ((Arg->Ret != TEEC_SUCCESS) || (Arg->Cmd != OPTEE_MSG_CMD_CLOSE_SESSION) ||
               (Arg->Session != OpenedSession) || (Arg->NumParams != 0))
           {
-            OpteeReject ("rejected open cleanup", (Arg->Ret != TEEC_SUCCESS) ? Arg->Ret : ((Arg->Cmd != OPTEE_MSG_CMD_CLOSE_SESSION) ? Arg->Cmd : ((Arg->NumParams != 0) ? Arg->NumParams : Arg->Session)), TEEC_ERROR_COMMUNICATION);
+            OpteeReject ("rejected open cleanup", Arg->Ret, TEEC_ERROR_COMMUNICATION);
             mBroken = TRUE;
             ReleaseRpcAllocations ();
           }
@@ -769,7 +746,7 @@ OpteeClientCloseSession (
     if ((Arg->Cmd != OPTEE_MSG_CMD_CLOSE_SESSION) || (Arg->Session != Session->session_id) ||
         (Arg->NumParams != 0))
     {
-      OpteeReject ("close response framing", (Arg->Cmd != OPTEE_MSG_CMD_CLOSE_SESSION) ? Arg->Cmd : ((Arg->NumParams != 0) ? Arg->NumParams : Arg->Session), TEEC_ERROR_COMMUNICATION);
+      OpteeReject ("close response framing", Arg->NumParams, TEEC_ERROR_COMMUNICATION);
       Result = TEEC_ERROR_COMMUNICATION;
     } else {
       Result = Arg->Ret;
@@ -826,7 +803,7 @@ TEEC_InvokeCommand (
       if ((Arg->Cmd != OPTEE_MSG_CMD_INVOKE_COMMAND) || (Arg->Func != commandID) ||
           (Arg->Session != session->session_id) || (Arg->NumParams != TEEC_CONFIG_PAYLOAD_REF_COUNT))
       {
-        OpteeReject ("invoke response framing", (Arg->Cmd != OPTEE_MSG_CMD_INVOKE_COMMAND) ? Arg->Cmd : ((Arg->NumParams != TEEC_CONFIG_PAYLOAD_REF_COUNT) ? Arg->NumParams : ((Arg->Func != commandID) ? Arg->Func : Arg->Session)), TEEC_ERROR_COMMUNICATION);
+        OpteeReject ("invoke response framing", Arg->NumParams, TEEC_ERROR_COMMUNICATION);
         Result = TEEC_ERROR_COMMUNICATION;
       } else {
         Result = GetMsgParams (Arg->Params, operation, &Bounce, Arg->Ret);

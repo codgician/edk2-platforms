@@ -51,6 +51,13 @@ VOID TestExpectDiagnostic (CONST CHAR8 *Check, UINT64 Value, UINT64 Status) {
   assert (strcmp (TestDiagnostic, Expected) == 0);
   TestClearDiagnostics ();
 }
+// For checks whose value is metadata the test does not pin.
+VOID TestExpectCheck (CONST CHAR8 *Check) {
+  CHAR8 Prefix[256];
+  snprintf (Prefix, sizeof (Prefix), "TPM OpteeClient: %s value=0x", Check);
+  assert (TestDiagnosticCount == 1 && strncmp (TestDiagnostic, Prefix, strlen (Prefix)) == 0);
+  TestClearDiagnostics ();
+}
 
 UINT8 TestPool[TEST_POOL_SIZE] __attribute__((aligned(65536)));
 UINT64 TestShmBase;

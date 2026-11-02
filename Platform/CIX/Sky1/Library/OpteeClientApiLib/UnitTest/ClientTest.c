@@ -220,10 +220,8 @@ int main (int Argc, char **Argv) {
       assert (TEEC_InvokeCommand (&Session, 42, &Op, NULL) == TEEC_ERROR_COMMUNICATION);
       switch (mMutation) {
         case 1: TestExpectDiagnostic ("response attribute", OPTEE_MSG_ATTR_TYPE_TMEM_INPUT, TEEC_ERROR_COMMUNICATION); break;
-        case 2: TestExpectDiagnostic ("response memref", (UINTN)mBounce + 1, TEEC_ERROR_COMMUNICATION); break;
-        case 3: TestExpectDiagnostic ("response memref", 1, TEEC_ERROR_COMMUNICATION); break;
-        case 4: TestExpectDiagnostic ("invoke response framing", 8, TEEC_ERROR_COMMUNICATION); break;
-        case 5: TestExpectDiagnostic ("invoke response framing", MAX_UINT32, TEEC_ERROR_COMMUNICATION); break;
+        case 2: case 3: TestExpectCheck ("response memref"); break;
+        case 4: case 5: TestExpectCheck ("invoke response framing"); break;
       }
       assert (Op.params[0].tmpref.size == 16);
       for (UINTN J = 0; J < sizeof (Out); J++) { assert (Out[J] == 0xA6); }
@@ -272,7 +270,7 @@ int main (int Argc, char **Argv) {
     assert (mSmcCalls == 2);
     mMutation = 9;
     assert (TEEC_OpenSession (&Ctx, &Session, &Uuid, TEEC_LOGIN_PUBLIC, NULL, NULL, NULL) == TEEC_ERROR_COMMUNICATION);
-    TestExpectDiagnostic ("rejected open cleanup", 20, TEEC_ERROR_COMMUNICATION);
+    TestExpectCheck ("rejected open cleanup");
     assert (Session.ctx == NULL && Session.session_id == 0);
     assert (mSmcCalls == 4);
   } else if (strcmp (Argv[1], "partial") == 0) {

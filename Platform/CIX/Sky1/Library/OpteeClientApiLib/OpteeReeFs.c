@@ -40,7 +40,6 @@ STATIC REE_FS_DESCRIPTOR  mDescriptors[REE_FS_MAX_DESCRIPTORS];
 STATIC UINTN             mTotalCapacity;
 STATIC UINT32            mLastDescriptorId;
 
-/** Only rejection return sites log; nested parsing/allocation helpers stay quiet. */
 STATIC
 TEEC_Result
 FsReject (
@@ -51,28 +50,6 @@ FsReject (
 {
   OpteeReject (Check, Value, Status);
   return Status;
-}
-
-/** Inspect metadata only: paths and file bytes never enter diagnostics. */
-STATIC
-UINT64
-FsMemrefValue (
-  IN OPTEE_MSG_PARAM  *Param,
-  IN UINT64           Expected
-  )
-{
-  VOID   *Buffer;
-  UINTN  Size;
-
-  if (Param->Attr != Expected) {
-    return Param->Attr;
-  }
-
-  if (!OpteeMsgParamToBuffer (Param, &Buffer, &Size)) {
-    return OpteeMsgParamRejectValue (Param);
-  }
-
-  return Param->U.Tmem.Size;
 }
 
 STATIC
@@ -192,6 +169,7 @@ STATIC
 BOOLEAN
 GetName (
   IN  OPTEE_MSG_PARAM  *Param,
+  IN  CONST CHAR8      *Check,
   OUT CHAR8            *Name
   )
 {
@@ -199,9 +177,7 @@ GetName (
   UINTN  Size;
   UINTN  Length;
 
-  if ((Param->Attr != OPTEE_MSG_ATTR_TYPE_TMEM_INPUT) ||
-      !OpteeMsgParamToBuffer (Param, &Buffer, &Size) || (Buffer == NULL))
-  {
+  if (!OpteeMsgParamToBuffer (Param, OPTEE_MSG_ATTR_TYPE_TMEM_INPUT, Check, &Buffer, &Size)) {
     return FALSE;
   }
 
@@ -211,6 +187,7 @@ GetName (
   CopyMem (Name, Buffer, Size);
   Length = AsciiStrnLenS (Name, Size);
   if ((Length == 0) || (Length >= Size)) {
+    OpteeReject (Check, Param->U.Tmem.Size, TEEC_ERROR_BAD_PARAMETERS);
     return FALSE;
   }
 
@@ -230,11 +207,12 @@ FsOpen (
   REE_FS_DESCRIPTOR    *Descriptor;
   UINTN                Index;
 
-  if ((Arg->NumParams != 3) ||
-      (Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ||
-      !GetName (&Arg->Params[1], Name))
-  {
-    return FsReject ("REE-FS open framing", (Arg->NumParams != 3) ? Arg->NumParams : ((Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT) ? Arg->Params[2].Attr : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT)), TEEC_ERROR_BAD_PARAMETERS);
+  if ((Arg->NumParams != 3) || (Arg->Params[2].Attr != OPTEE_MSG_ATTR_TYPE_VALUE_OUTPUT)) {
+    return FsReject ("REE-FS open framing", (Arg->NumParams != 3) ? Arg->NumParams : Arg->Params[2].Attr, TEEC_ERROR_BAD_PARAMETERS);
+  }
+
+  if (!GetName (&Arg->Params[1], "REE-FS open framing", Name)) {
+    return TEEC_ERROR_BAD_PARAMETERS;
   }
 
   File = FindByName (Name);
@@ -291,11 +269,19 @@ FsReadWrite (
   UINT64             Offset;
   UINTN              Copy;
 
-  if ((Arg->NumParams != 2) ||
-      (Arg->Params[1].Attr != (Write ? OPTEE_MSG_ATTR_TYPE_TMEM_INPUT : OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT)) ||
-      !OpteeMsgParamToBuffer (&Arg->Params[1], &Buffer, &Length))
+  if (Arg->NumParams != 2) {
+    return FsReject ("REE-FS IO framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
+  }
+
+  if (!OpteeMsgParamToBuffer (
+         &Arg->Params[1],
+         Write ? OPTEE_MSG_ATTR_TYPE_TMEM_INPUT : OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT,
+         "REE-FS IO framing",
+         &Buffer,
+         &Length
+         ))
   {
-    return FsReject ("REE-FS IO framing", (Arg->NumParams != 2) ? Arg->NumParams : FsMemrefValue (&Arg->Params[1], Write ? OPTEE_MSG_ATTR_TYPE_TMEM_INPUT : OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT), TEEC_ERROR_BAD_PARAMETERS);
+    return TEEC_ERROR_BAD_PARAMETERS;
   }
 
   Descriptor = FindDescriptor (Arg->Params[0].U.Value.B);
@@ -384,8 +370,12 @@ OpteeReeFsHandle (
 
       return TEEC_SUCCESS;
     case OPTEE_RPC_FS_REMOVE:
-      if ((Arg->NumParams != 2) || !GetName (&Arg->Params[1], Name)) {
-        return FsReject ("REE-FS remove framing", (Arg->NumParams != 2) ? Arg->NumParams : FsMemrefValue (&Arg->Params[1], OPTEE_MSG_ATTR_TYPE_TMEM_INPUT), TEEC_ERROR_BAD_PARAMETERS);
+      if (Arg->NumParams != 2) {
+        return FsReject ("REE-FS remove framing", Arg->NumParams, TEEC_ERROR_BAD_PARAMETERS);
+      }
+
+      if (!GetName (&Arg->Params[1], "REE-FS remove framing", Name)) {
+        return TEEC_ERROR_BAD_PARAMETERS;
       }
 
       File = FindByName (Name);

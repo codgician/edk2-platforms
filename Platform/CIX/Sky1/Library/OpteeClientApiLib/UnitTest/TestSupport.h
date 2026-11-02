@@ -33,6 +33,7 @@ extern UINTN TestDiagnosticCount;
 extern CHAR8 TestDiagnostic[512];
 VOID TestClearDiagnostics (VOID);
 VOID TestExpectDiagnostic (CONST CHAR8 *Check, UINT64 Value, UINT64 Status);
+VOID TestExpectCheck (CONST CHAR8 *Check);
 
 VOID TestInit (VOID);
 VOID TestFini (VOID);
